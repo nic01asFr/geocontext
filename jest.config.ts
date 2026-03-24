@@ -11,7 +11,12 @@ const jestConfig: JestConfigWithTsJest = {
   collectCoverageFrom: [
     'src/**/*.{ts,tsx,js,jsx}'
   ],
-  testTimeout: 60 * MILLISECONDS
+  testTimeout: 60 * MILLISECONDS,
+  // Résout les imports .js → .ts pour les fichiers TypeScript ESM
+  // (convention ESM : les imports TS utilisent .js, le compilateur les résout)
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
+  },
 }
 
 export default jestConfig;
