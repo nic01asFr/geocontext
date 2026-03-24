@@ -1,10 +1,15 @@
-# TERR'ID — Spécification du service de fiche d'identité territoriale
+# Spécification des données — geocontext
 
 ## Concept
 
-Terr'id est un service de fiche d'identité territoriale multi-échelle. L'utilisateur interroge en langage naturel. Le LLM comprend la question, résout l'entité, navigue l'arborescence structurée, et appelle les bonnes sources de données.
+geocontext est un service de contexte spatial multi-échelle. Il structure les données territoriales françaises en 6 niveaux hiérarchiques, chacun avec des thématiques adaptées et des sources de données spécifiques.
 
-Le service est structuré en 6 niveaux hiérarchiques, chacun avec des thématiques adaptées et des données spécifiques. Chaque donnée est rattachée par une clé de liaison (attributaire directe ou spatiale).
+Le service est conçu pour être consommé par :
+- Un **agent LLM** via MCP (tool calls dynamiques, resources contextuelles)
+- Une **interface cartographique** (carte + panneaux + chat)
+- Tout **client MCP conforme** (Claude Desktop, Cursor, etc.)
+
+Les trois modes naviguent le même arbre de données et partagent le même mécanisme de contexte (voir [navigation-context.md](navigation-context.md)).
 
 ## Hiérarchie des niveaux et clés
 
@@ -57,6 +62,50 @@ La couche ADMINEXPRESS-COG.LATEST:commune contient tous les FK ascendants :
 | identifiant_ban | variable | Adresse BAN | DPE, RNB, BDNB |
 | idurba | variable | Document urbanisme | zone_urba, prescriptions |
 
+## Tools MCP
+
+geocontext expose des tools dynamiques dont la surface change selon le contexte de session (voir [dynamic-tools.md](dynamic-tools.md)) :
+
+### Tools permanents
+
+```
+navigate(target)     — Se déplacer dans l'arbre territorial
+search(keywords)     — Chercher un lieu, une donnée, un type WFS
+back()               — Remonter d'un cran
+```
+
+### Tools contextuels
+
+```
+action(action, filter?)    — Consulter une thématique (apparaît quand territoire résolu)
+map(operation, layer, params?)  — Agir sur la carte (apparaît quand données chargées)
+compare(with_theme)        — Croiser deux thématiques (apparaît quand thème actif)
+select(feature_id)         — Sélectionner une feature (apparaît quand features visibles)
+```
+
+### Chemins sémantiques
+
+Le LLM et l'interface naviguent avec des chemins thématiques :
+
+```
+commune.identité             → stats admin, population, surface
+commune.urbanisme.document   → PLU/POS/CC/PSMV en vigueur
+commune.urbanisme.zonages    → zones U/AU/A/N
+commune.urbanisme.prescriptions
+commune.urbanisme.servitudes
+commune.cadastre.parcelles   → liste des parcelles
+commune.cadastre.sections    → sections cadastrales
+commune.risques              → aléas, PPRI, cavités, radon
+commune.environnement        → ZNIEFF, Natura 2000, PNR
+commune.économie             → entreprises SIRENE par NAF
+parcelle.identité            → section, contenance, zonage
+parcelle.transactions        → historique DVF
+parcelle.bâtiments           → bâtiments RNB sur la parcelle
+bâtiment.identité            → adresse, hauteur, année
+bâtiment.énergie             → DPE, isolation, chauffage (via BDNB)
+bâtiment.risques             → aléas ponctuels
+```
+
 ## Endpoints
 
 | # | Endpoint | Données | Priorité |
@@ -78,33 +127,6 @@ La couche ADMINEXPRESS-COG.LATEST:commune contient tous les FK ascendants :
 | 15 | data.education.gouv.fr | Établissements scolaires | Tertiaire |
 | 16 | data.drees.gouv.fr | Établissements santé | Tertiaire |
 
-## Tools MCP exposés
-
-```
-territory_resolve(input)
-  Entrée : texte libre / coordonnées / code / idpar
-  Sortie : entité identifiée + hiérarchie complète + niveau résolu
-
-territory_themes(level)
-  Entrée : niveau ("commune", "parcelle", "batiment", etc.)
-  Sortie : arborescence des thématiques disponibles avec chemins
-
-territory_data(code, path, options?)
-  Entrée : code entité + chemin thématique (ex: "commune.urbanisme.document")
-  Sortie : données de la thématique
-```
-
-Le LLM navigue avec des chemins sémantiques, jamais avec du WFS brut :
-
-```
-"commune.urbanisme.document"
-"commune.environnement.znieff"
-"commune.economie.entreprises"
-"parcelle.transactions"
-"batiment.energie.dpe"
-"departement.composition.communes"
-```
-
 ## Contraintes techniques
 
 | Contrainte | Mitigation |
@@ -116,7 +138,6 @@ Le LLM navigue avec des chemins sémantiques, jamais avec du WFS brut :
 | EPCI = SIREN pas INSEE | commune.siren_epci comme pont |
 | BDNB régénère ses IDs par vintage | Utiliser rnb_id ou cleabs comme pivot stable |
 | DPE → parcelle non fiable | Passer par BDNB (matching via BAN) |
-| geoservices.ign.fr ferme 26/03/2026 | Migrer URLs vers cartes.gouv.fr |
 
 ## Bilan quantitatif
 

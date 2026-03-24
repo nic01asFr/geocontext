@@ -55,6 +55,23 @@ Backend modules that call Géoplateforme REST/WFS APIs. Mix of `.js` and `.ts` f
 
 Tests mirror the `src/gpf/` structure. They call real Géoplateforme APIs (no mocking), so they require network access and have a 60s timeout. `test/samples.ts` provides reusable GeoJSON test fixtures (points for Paris, Chamonix, Marseille, etc.).
 
+### Session & Navigation Context (`src/session/`)
+
+Stateful session layer (in development) that powers dynamic MCP tools and the web interface. Each MCP connection maintains a `NavigationContext` tracking: territory level, code, bbox, active theme, loaded data, map layers, and navigation history. See `src/session/types.ts` for type definitions.
+
+The session determines which tools and resources are exposed to the LLM at each turn via the MCP `tools/list_changed` notification mechanism.
+
+### Design Documentation (`docs/`)
+
+| Document | Content |
+|----------|---------|
+| `docs/architecture.md` | Global architecture — components, structure, transports |
+| `docs/data-model.md` | Data model — 6 levels, themes, pivot keys, sources |
+| `docs/navigation-context.md` | Core principle: context=interface, navigation cycle |
+| `docs/dynamic-tools.md` | Dynamic MCP tool surface — how tools adapt to context |
+| `docs/web-interface.md` | Web interface — map + panels + chat |
+| `docs/terrid-spec.md` | Data sources specification — endpoints, constraints |
+
 ## Key Conventions
 
 - ESM module system (`"type": "module"` in package.json, ESNext module/target in tsconfig)
