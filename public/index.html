@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geocontext</title>
+
+  <!-- MapLibre GL JS -->
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ================================================================ -->
+<!-- Barre supérieure                                                  -->
+<!-- ================================================================ -->
+<header id="topbar">
+  <div class="topbar-left">
+    <span class="logo">geocontext</span>
+  </div>
+  <div class="topbar-center">
+    <input id="search-input" type="text" placeholder="Lieu, code INSEE, coordonnées…" autocomplete="off">
+    <button id="search-btn" title="Rechercher">&#x1F50D;</button>
+  </div>
+  <div class="topbar-right">
+    <span id="status-indicator" class="status offline" title="Déconnecté"></span>
+    <button id="settings-btn" title="Paramètres">&#x2699;</button>
+  </div>
+</header>
+
+<!-- ================================================================ -->
+<!-- Layout 3 colonnes                                                 -->
+<!-- ================================================================ -->
+<main id="layout">
+
+  <!-- ── Panneau gauche : contexte ── -->
+  <aside id="panel-context">
+    <section id="hierarchy">
+      <h3>Territoire</h3>
+      <div id="hierarchy-tree" class="tree">
+        <p class="placeholder">Recherchez un lieu pour commencer.</p>
+      </div>
+    </section>
+
+    <section id="themes">
+      <h3>Thèmes</h3>
+      <div id="themes-list" class="theme-buttons"></div>
+    </section>
+
+    <section id="actions-section" class="hidden">
+      <h3 id="actions-title">Actions</h3>
+      <div id="actions-list" class="action-buttons"></div>
+    </section>
+  </aside>
+
+  <!-- ── Centre : carte + données ── -->
+  <div id="panel-center">
+    <div id="map-container">
+      <div id="map"></div>
+      <div id="map-overlay">
+        <div id="territory-badge" class="hidden"></div>
+      </div>
+    </div>
+    <div id="data-panel" class="hidden">
+      <div id="data-header">
+        <h3 id="data-title">Données</h3>
+        <button id="data-close" title="Fermer">&times;</button>
+      </div>
+      <div id="data-content"></div>
+    </div>
+  </div>
+
+  <!-- ── Panneau droite : chat ── -->
+  <aside id="panel-chat">
+    <div id="chat-header">
+      <h3>Assistant</h3>
+      <span id="chat-mode" class="badge">direct</span>
+    </div>
+    <div id="chat-messages">
+      <div class="msg system">
+        Bienvenue dans geocontext. Recherchez un lieu ou cliquez sur la carte pour commencer.
+      </div>
+    </div>
+    <div id="chat-input-area">
+      <textarea id="chat-input" placeholder="Posez une question…" rows="2"></textarea>
+      <button id="chat-send" title="Envoyer">&#x27A4;</button>
+    </div>
+  </aside>
+
+</main>
+
+<!-- ================================================================ -->
+<!-- Scripts                                                           -->
+<!-- ================================================================ -->
+<script src="mcp-client.js"></script>
+<script src="state.js"></script>
+<script src="map.js"></script>
+<script src="context-panel.js"></script>
+<script src="data-panel.js"></script>
+<script src="chat.js"></script>
+<script src="app.js"></script>
+
+</body>
+</html>

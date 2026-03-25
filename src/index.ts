@@ -25,9 +25,9 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-import { dirname, join } from "path";
+import { dirname, join, extname } from "path";
 import { fileURLToPath } from "url";
-import { readFileSync } from "fs";
+import { readFileSync, existsSync, createReadStream, statSync } from "fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
 import { randomUUID } from "crypto";
 
@@ -255,28 +255,61 @@ async function startStdio(): Promise<void> {
  */
 async function startHttp(): Promise<void> {
   const PORT = parseInt(process.env.PORT ?? "3000", 10);
+  const PUBLIC_DIR = join(__dirname, "../public");
+
+  // MIME types pour les fichiers statiques
+  const MIME_TYPES: Record<string, string> = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+  };
 
   // Map de transports actifs par sessionId
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
+    const pathname = url.split("?")[0];
 
-    // CORS
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
-    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+    // CORS pour /mcp
+    if (pathname === "/mcp") {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+      res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
 
-    if (req.method === "OPTIONS") {
-      res.writeHead(204);
-      res.end();
-      return;
+      if (req.method === "OPTIONS") {
+        res.writeHead(204);
+        res.end();
+        return;
+      }
     }
 
-    if (url !== "/mcp") {
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "Not found. Use POST /mcp" }));
+    // ── Fichiers statiques (public/) ──
+    if (pathname !== "/mcp") {
+      const safePath = pathname === "/" ? "/index.html" : pathname;
+      // Empêcher la traversée de répertoire
+      if (safePath.includes("..")) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return;
+      }
+
+      const filePath = join(PUBLIC_DIR, safePath);
+      if (existsSync(filePath) && statSync(filePath).isFile()) {
+        const ext = extname(filePath);
+        const mime = MIME_TYPES[ext] || "application/octet-stream";
+        res.writeHead(200, { "Content-Type": mime });
+        createReadStream(filePath).pipe(res);
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
       return;
     }
 
