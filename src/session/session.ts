@@ -285,18 +285,21 @@ export class GeoContextSession {
     const results = await executeSources(sources, this.ctx, userFilters);
     this.ctx.data[`${this.ctx.theme}.${action}`] = results;
 
-    // Ajouter les couches géographiques
+    // Ajouter les couches géographiques via layerSpec
+    const layerSpecs: Record<string, import("./registry/types.js").LayerSpec> = {};
     for (const r of results) {
-      if (r.geojson && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
+      if (r.layerSpec && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
         this.ctx.layers.push({
           name: r.sourceId,
           visible: true,
           featureCount: r.features.length,
+          style: r.layerSpec.style,
         });
+        layerSpecs[r.sourceId] = r.layerSpec;
       }
     }
 
-    return textResult(formatSourceResults(results, this.ctx));
+    return richResult(formatSourceResults(results, this.ctx), layerSpecs);
   }
 
   /**
@@ -484,14 +487,17 @@ export class GeoContextSession {
     const results = await executeSources(sourcesToLoad, this.ctx);
     this.ctx.data[theme2] = results;
 
-    // Ajouter les couches géo du second thème
+    // Ajouter les couches géo du second thème via layerSpec
+    const layerSpecs: Record<string, import("./registry/types.js").LayerSpec> = {};
     for (const r of results) {
-      if (r.geojson && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
+      if (r.layerSpec && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
         this.ctx.layers.push({
           name: r.sourceId,
           visible: true,
           featureCount: r.features.length,
+          style: r.layerSpec.style,
         });
+        layerSpecs[r.sourceId] = r.layerSpec;
       }
     }
 
@@ -504,10 +510,11 @@ export class GeoContextSession {
       : "Données déjà chargées.";
     const theme2Summary = formatSourceResults(results, this.ctx);
 
-    return textResult(
+    return richResult(
       `Comparaison ${theme1Label} × ${theme2Label} pour ${this.ctx.name} :\n\n` +
       `── ${theme1Label} ──\n${theme1Summary}\n\n` +
       `── ${theme2Label} ──\n${theme2Summary}`,
+      layerSpecs,
     );
   }
 
@@ -794,4 +801,26 @@ function formatSourceResults(
 
 function textResult(text: string): CallToolResult {
   return { content: [{ type: "text", text }] };
+}
+
+/**
+ * Résultat riche : texte pour le LLM + layerSpecs JSON pour le frontend.
+ *
+ * Le frontend parse les blocs content[] et détecte le JSON layerSpecs
+ * pour déclencher le fetch GeoJSON direct depuis Géoplateforme.
+ */
+function richResult(
+  text: string,
+  layerSpecs: Record<string, import("./registry/types.js").LayerSpec>,
+): CallToolResult {
+  const content: CallToolResult["content"] = [{ type: "text", text }];
+
+  if (Object.keys(layerSpecs).length > 0) {
+    content.push({
+      type: "text",
+      text: JSON.stringify({ _type: "layerSpecs", layers: layerSpecs }),
+    });
+  }
+
+  return { content };
 }

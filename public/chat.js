@@ -129,12 +129,26 @@ const Chat = {
 
     const result = await this._client.callTool(name, args);
 
-    // Extraire le texte
+    // Extraire le texte humain (ignorer les blocs layerSpecs JSON)
     const content = result?.content ?? [];
-    const text = content.map((c) => c.text || "").join("\n");
+    const textParts = content.filter((c) => {
+      if (c.type !== "text") return false;
+      try {
+        const parsed = JSON.parse(c.text);
+        if (parsed._type === "layerSpecs") return false;
+      } catch {}
+      return true;
+    });
+    const text = textParts.map((c) => c.text).join("\n");
 
     if (text) {
       this.addMessage("assistant", text);
+    }
+
+    // Fetch les couches GeoJSON directement depuis Géoplateforme
+    const specs = GeoFetcher.extractLayerSpecs(result);
+    if (specs) {
+      await GeoFetcher.loadLayers(specs);
     }
 
     // Rafraîchir l'état global

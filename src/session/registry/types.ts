@@ -480,6 +480,17 @@ export interface SourceDef {
     field: string;
     order: "asc" | "desc";
   };
+
+  /**
+   * Style d'affichage par défaut pour la couche cartographique.
+   * Utilisé par le frontend pour renderer les features GeoJSON.
+   */
+  displayStyle?: {
+    color?: string;
+    opacity?: number;
+    stroke?: string;
+    strokeWidth?: number;
+  };
 }
 
 // ==========================================================================
@@ -610,6 +621,17 @@ export interface SourceResult {
    */
   geojson?: GeoJSON.FeatureCollection;
 
+  /**
+   * Spécification de couche pour fetch direct côté frontend.
+   *
+   * Le frontend utilise cette spec pour récupérer le GeoJSON directement
+   * depuis Géoplateforme, sans transiter par le transport MCP
+   * (qui a une limite de taille).
+   *
+   * Présent uniquement pour les sources WFS avec géométries.
+   */
+  layerSpec?: LayerSpec;
+
   /** Nombre total de résultats côté serveur (si connu, ex: WFS numberMatched) */
   totalCount?: number;
 
@@ -618,6 +640,41 @@ export interface SourceResult {
 
   /** Filtre partition trouvé (pour le cache) */
   resolvedPartition?: string;
+}
+
+/**
+ * Spécification de couche pour fetch GeoJSON direct côté frontend.
+ *
+ * Le frontend construit l'URL WFS GetFeature et fetch le GeoJSON
+ * directement depuis Géoplateforme. Cela évite de transiter les
+ * géométries (potentiellement volumineuses) par le transport MCP.
+ */
+export interface LayerSpec {
+  /** URL de base du service WFS */
+  wfsUrl: string;
+
+  /** TypeName WFS (ex: CADASTRALPARCELS.PARCELLAIRE_EXPRESS:parcelle) */
+  typename: string;
+
+  /** Filtre CQL complet (pivot + filtres utilisateur) */
+  cqlFilter: string;
+
+  /** CRS de sortie (toujours EPSG:4326 pour MapLibre) */
+  srsName: string;
+
+  /** Nombre max de features */
+  maxFeatures: number;
+
+  /** CRS natif de l'endpoint (pour reprojection si nécessaire) */
+  nativeCrs?: string;
+
+  /** Style suggéré pour l'affichage */
+  style?: {
+    color?: string;
+    opacity?: number;
+    stroke?: string;
+    strokeWidth?: number;
+  };
 }
 
 // ==========================================================================

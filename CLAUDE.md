@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-geocontext is an experimental MCP (Model Context Protocol) server that provides spatial context for LLMs by interfacing with France's Géoplateforme services. Built with `mcp-framework`, it exposes tools for geocoding, altitude lookup, administrative/cadastral/urbanisme queries, and WFS vector data exploration.
+geocontext is an MCP (Model Context Protocol) server that provides spatial context for LLMs by interfacing with France's Géoplateforme services. It exposes **dynamic tools** that adapt to a navigation context (territory, theme, data), **resources** for state introspection, and a **web interface** with an interactive map.
+
+Two client types, identical treatment:
+- **Direct MCP clients** (Claude Desktop, Cursor) — via stdio transport
+- **Web interface** (map + panels + chat) — via HTTP transport at `http://localhost:3000`
 
 ## Commands
 
@@ -13,8 +17,14 @@ npm install          # Install dependencies
 npm run build        # Compile TypeScript + mcp-build (tsc && npx mcp-build)
 npm test             # Run tests (uses --experimental-vm-modules for ESM)
 npm run coverage     # Run tests with coverage
-npm start            # Start the server (node dist/index.js)
+npm start            # Start the server in stdio mode (node dist/index.js)
 npm run watch        # TypeScript watch mode
+```
+
+Start with HTTP transport (web interface):
+```bash
+TRANSPORT_TYPE=http npm start
+# → http://localhost:3000
 ```
 
 Run a single test file:
@@ -29,37 +39,93 @@ npx -y @modelcontextprotocol/inspector node dist/index.js
 
 ## Architecture
 
-### Entry Point & Transport
+```
+┌─────────────────────────────────────────────────────────┐
+│  Web Interface (public/)                                 │
+│  MapLibre + Context Panel + Data Panel + Chat            │
+│         ↕ HTTP /mcp (JSON-RPC + SSE)                    │
+├─────────────────────────────────────────────────────────┤
+│  MCP Server (src/index.ts)                               │
+│  tools/list, tools/call, resources/list, resources/read  │
+│  Transport: stdio (1 session) | HTTP (N sessions)        │
+├─────────────────────────────────────────────────────────┤
+│  Session Layer (src/session/)                            │
+│  session.ts → 7 handlers + dynamic tool builders         │
+│  navigate.ts → 6 territory resolution strategies         │
+│  registry/ → 16 endpoints, 30+ sources, field transforms │
+│  executors/ → WFS/REST execution with CQL, retry, sort   │
+├─────────────────────────────────────────────────────────┤
+│  Géoplateforme Clients (src/gpf/)                        │
+│  geocode, altitude, adminexpress, cadastre, wfs, etc.    │
+└─────────────────────────────────────────────────────────┘
+```
 
-`src/index.ts` — Creates an `MCPServer` (from mcp-framework) with auto-discovery of tools in `src/tools/`. Transport is configured via `TRANSPORT_TYPE` env var: `"stdio"` (default) or `"http"` (port 3000 with CORS).
+### Entry Point & Transport (`src/index.ts`)
 
-### Tools (`src/tools/`)
+Uses the MCP SDK directly (not mcp-framework) for dynamic tool/resource control. `configureServer()` wires up handlers on a `Server` instance. Two transports:
+- **stdio** — 1 Server, 1 session, 1 client
+- **HTTP** — 1 Server per connection via `StreamableHTTPServerTransport`, serves `public/` for the web UI
 
-Each tool extends `MCPTool` from mcp-framework and defines `name`, `description`, `schema` (using Zod), and an `execute()` method. Tools are auto-discovered by mcp-framework from this directory. To add a new tool, create a new file exporting a default class extending `MCPTool`, or use `mcp add tool <name>`.
+### Session Layer (`src/session/`)
 
-Tool categories:
-- **Geocoding/Altitude**: `GeocodeTool`, `AltitudeTool` — point lookups via Géoplateforme APIs
-- **Spatial queries** (lon,lat → info): `AdminexpressTool`, `CadastreTool`, `UrbanismeTool`, `AssietteSupTool`
-- **WFS exploration**: `GpfWfsSearchTypesTool`, `GpfWfsDescribeTypeTool`, `GpfWfsGetFeaturesTool`, `GpfWfsListTypesTool` (deprecated)
+Core of the application. Each session maintains a `NavigationContext` (territory level, code, bbox, theme, data, layers, history).
+
+| File | Role |
+|------|------|
+| `session.ts` | `GeoContextSession` — 7 tool handlers (navigate, action, search, back, map, select, compare) + 7 dynamic tool builders |
+| `navigate.ts` | Territory resolution: INSEE code, parcelle ID, coordinates, département, SIREN EPCI, free text |
+| `registry/` | Data registry mapping `(level, theme, action)` → sources with endpoints, fields, pivots, filters |
+| `executors/executor.ts` | Executes WFS/REST sources: CQL construction, fetch with retry, field transforms, layerSpecs |
+
+**Dynamic tools principle**: 3-7 tools exposed to the LLM depending on context. Descriptions, enums, and schemas change after each tool call. `tools/list_changed` notification triggers re-fetch.
+
+**LayerSpecs pattern**: GeoJSON is NOT returned through MCP (too large). Instead, tool results include `layerSpec` objects (WFS URL, typename, CQL filter, style). The frontend fetches GeoJSON directly from Géoplateforme.
+
+### Registry (`src/session/registry/`)
+
+| File | Role |
+|------|------|
+| `endpoints.ts` | 16 Géoplateforme endpoints (WFS, REST) with URLs, retry policies, CRS |
+| `sources/*.ts` | 30+ source definitions organized by theme (urbanisme, cadastre, risques…) |
+| `types.ts` | All type definitions: SourceDef, EndpointDef, PivotStrategy, FieldDef, LayerSpec |
+| `pivot.ts` | CQL filter construction from context (attribute, spatial, composite, fallback) |
+| `fields.ts` | Field transformations (date parsing, unit conversion, enum mapping) |
+| `filters.ts` | User filter → CQL/REST params conversion |
+| `tree.ts` | UI tree builder, action descriptions, enum generation for dynamic tools |
+| `registry.ts` | Singleton registry with lookup methods: getThemes, getActions, getSources |
+
+### Static Tools (`src/tools/`)
+
+Legacy tools extending `MCPTool` from mcp-framework. Still auto-discovered and available alongside dynamic tools. The session layer orchestrates them internally.
 
 ### Géoplateforme Clients (`src/gpf/`)
 
-Backend modules that call Géoplateforme REST/WFS APIs. Mix of `.js` and `.ts` files. `wfs.ts` provides `WfsClient` (wrapping `@camptocamp/ogc-client`) with `FeatureTypeSearch` (using MiniSearch for fuzzy keyword search over WFS capabilities). A singleton `wfsClient` is exported.
+Backend modules calling Géoplateforme REST/WFS APIs. Mix of `.js` and `.ts`. `wfs.ts` provides `WfsClient` with `FeatureTypeSearch` (MiniSearch fuzzy search over WFS capabilities).
 
-### Helpers (`src/helpers/`)
+### Web Interface (`public/`)
 
-- `http.js` — `fetchJSON()` wrapper using `node-fetch` with proxy support (`HTTP_PROXY` env var) and logging
-- `distance.js` — Geometric distance utilities using `jsts`
+Single-page app (vanilla JS, no build step) with 3-column layout:
+
+| File | Role |
+|------|------|
+| `mcp-client.js` | MCP Streamable HTTP client (JSON-RPC + SSE, session management) |
+| `state.js` | Global state pub/sub, syncs with MCP resources |
+| `map.js` | MapLibre GL JS, IGN Plan v2 tiles, dynamic GeoJSON layers |
+| `geo-fetcher.js` | Fetches GeoJSON directly from Géoplateforme via layerSpecs, Lambert-93 reprojection |
+| `context-panel.js` | Territory hierarchy tree + theme/action buttons |
+| `data-panel.js` | Data tables, stats, feature highlight |
+| `chat.js` | Chat with direct MCP commands (works without LLM) |
+| `app.js` | Orchestration, search bar, event routing |
 
 ### Tests (`test/`)
 
-Tests mirror the `src/gpf/` structure. They call real Géoplateforme APIs (no mocking), so they require network access and have a 60s timeout. `test/samples.ts` provides reusable GeoJSON test fixtures (points for Paris, Chamonix, Marseille, etc.).
-
-### Session & Navigation Context (`src/session/`)
-
-Stateful session layer (in development) that powers dynamic MCP tools and the web interface. Each MCP connection maintains a `NavigationContext` tracking: territory level, code, bbox, active theme, loaded data, map layers, and navigation history. See `src/session/types.ts` for type definitions.
-
-The session determines which tools and resources are exposed to the LLM at each turn via the MCP `tools/list_changed` notification mechanism.
+| Test file | Type | Network? |
+|-----------|------|----------|
+| `test/session/registry.test.ts` | Unit (39 tests) | No |
+| `test/session/executor.test.ts` | Unit with mock fetch (6 tests) | No |
+| `test/session/navigate.test.ts` | Integration | Yes (Géoplateforme) |
+| `test/session/session.test.ts` | Integration | Yes (Géoplateforme) |
+| `test/gpf/*.test.ts` | Integration | Yes (Géoplateforme) |
 
 ### Design Documentation (`docs/`)
 
@@ -79,3 +145,5 @@ The session determines which tools and resources are exposed to the LLM at each 
 - The project uses `.js` imports in TypeScript files (e.g., `import { geocode } from "../gpf/geocode.js"`)
 - Logging via `winston` (`src/logger.js`)
 - Node.js >= 18.19.0 required; CI runs on Node 22
+- GeoJSON never transits through MCP — use layerSpecs for frontend direct fetch
+- ADMINEXPRESS field names: `nom_officiel`, `code_insee`, `code_insee_du_departement`, `code_insee_de_la_region`

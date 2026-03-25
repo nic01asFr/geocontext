@@ -2,6 +2,7 @@
  * App — point d'entrée de l'interface web geocontext.
  *
  * Initialise tous les composants et orchestre les interactions.
+ * Gère le flux : UI event → MCP tool call → layerSpecs → fetch GeoJSON → carte.
  */
 
 (async function () {
@@ -33,7 +34,6 @@
     statusEl.title = "Connecté";
     Chat.addMessage("system", "Connecté au serveur geocontext.");
 
-    // Charger l'état initial
     await GeoState.refreshAll(client);
   } catch (e) {
     statusEl.className = "status offline";
@@ -48,7 +48,40 @@
   };
 
   // ================================================================
-  // 3. Recherche (barre supérieure)
+  // 3. Helpers
+  // ================================================================
+
+  /**
+   * Extrait le texte humain d'un résultat MCP (ignore les blocs JSON layerSpecs).
+   */
+  function extractText(result) {
+    if (!result?.content) return "";
+    return result.content
+      .filter((c) => {
+        if (c.type !== "text") return false;
+        try {
+          const parsed = JSON.parse(c.text);
+          if (parsed._type === "layerSpecs") return false;
+        } catch {}
+        return true;
+      })
+      .map((c) => c.text)
+      .join("\n");
+  }
+
+  /**
+   * Traite les layerSpecs d'un résultat MCP :
+   * fetch le GeoJSON directement depuis Géoplateforme et l'affiche sur la carte.
+   */
+  async function processLayerSpecs(result) {
+    const specs = GeoFetcher.extractLayerSpecs(result);
+    if (specs) {
+      await GeoFetcher.loadLayers(specs);
+    }
+  }
+
+  // ================================================================
+  // 4. Recherche (barre supérieure)
   // ================================================================
 
   async function doSearch() {
@@ -58,8 +91,7 @@
     statusEl.className = "status loading";
     try {
       const result = await client.callTool("navigate", { target: text });
-      const content = result?.content ?? [];
-      const msg = content.map((c) => c.text || "").join("\n");
+      const msg = extractText(result);
       if (msg) Chat.addMessage("assistant", msg);
 
       await GeoState.refreshAll(client);
@@ -77,7 +109,7 @@
   });
 
   // ================================================================
-  // 4. Événements émis par les composants
+  // 5. Événements émis par les composants
   // ================================================================
 
   // Clic carte → navigate par coordonnées
@@ -86,8 +118,7 @@
     try {
       const target = `${lon.toFixed(5)},${lat.toFixed(5)}`;
       const result = await client.callTool("navigate", { target });
-      const content = result?.content ?? [];
-      const msg = content.map((c) => c.text || "").join("\n");
+      const msg = extractText(result);
       if (msg) Chat.addMessage("assistant", msg);
 
       await GeoState.refreshAll(client);
@@ -103,8 +134,7 @@
     statusEl.className = "status loading";
     try {
       const result = await client.callTool("navigate", { target: code });
-      const content = result?.content ?? [];
-      const msg = content.map((c) => c.text || "").join("\n");
+      const msg = extractText(result);
       if (msg) Chat.addMessage("assistant", msg);
 
       await GeoState.refreshAll(client);
@@ -115,17 +145,19 @@
     }
   });
 
-  // Clic thème/action → action
+  // Clic thème/action → action + fetch GeoJSON direct
   GeoState.on("action-request", async (action) => {
     statusEl.className = "status loading";
     try {
       const result = await client.callTool("action", { action });
-      const content = result?.content ?? [];
-      const text = content.map((c) => c.text || "").join("\n");
+      const text = extractText(result);
       if (text) {
         Chat.addMessage("assistant", text);
         DataPanel.render(action, text);
       }
+
+      // Fetch les couches GeoJSON directement depuis Géoplateforme
+      await processLayerSpecs(result);
 
       await GeoState.refreshAll(client);
     } catch (e) {

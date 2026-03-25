@@ -28,6 +28,7 @@ import type {
   EndpointDef,
   SourceResult,
   ExecutionParams,
+  LayerSpec,
 } from "../registry/types.js";
 import { getEndpoint } from "../registry/endpoints.js";
 import {
@@ -147,7 +148,7 @@ async function executeWfsSource(
       const primaryResult = await fetchWfs(endpoint, source, result.primary.cql);
       if (primaryResult.features.length > 0) {
         resolvedPartition = result.primary.resolvedPartition;
-        return finalizeWfsResult(source, primaryResult, resolvedPartition);
+        return finalizeWfsResult(source, endpoint, result.primary.cql, primaryResult, resolvedPartition);
       }
 
       // Fallback
@@ -173,7 +174,7 @@ async function executeWfsSource(
 
   // 3. Exécuter la requête WFS
   const rawResult = await fetchWfs(endpoint, source, cqlFilter!);
-  return finalizeWfsResult(source, rawResult, resolvedPartition);
+  return finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
 }
 
 /**
@@ -231,10 +232,12 @@ async function fetchWfs(
  */
 function finalizeWfsResult(
   source: SourceDef,
+  endpoint: EndpointDef,
+  cqlFilter: string,
   raw: { features: Record<string, unknown>[]; totalCount?: number },
   resolvedPartition?: string,
 ): SourceResult {
-  const maxFeatures = source.constraints?.maxFeaturesOverride ?? 1000;
+  const maxFeatures = source.constraints?.maxFeaturesOverride ?? endpoint.maxFeatures;
   const transformed = transformFeatures(raw.features, source.fields);
 
   // Tri par défaut si configuré
@@ -251,28 +254,38 @@ function finalizeWfsResult(
     });
   }
 
-  // Construire le GeoJSON si géométries présentes
-  const geomField = geometryFieldName(source);
-  let geojson: GeoJSON.FeatureCollection | undefined;
-  if (source.fields.some((f) => f.type === "geometry")) {
-    geojson = {
-      type: "FeatureCollection",
-      features: raw.features
-        .filter((f) => f[geomField])
-        .map((f, i) => ({
-          type: "Feature" as const,
-          id: i,
-          geometry: f[geomField] as GeoJSON.Geometry,
-          properties: transformed[i] ?? {},
-        })),
+  // Construire le layerSpec pour fetch direct côté frontend
+  // (évite de transiter les géométries volumineuses par MCP)
+  const hasGeometry = source.fields.some((f) => f.type === "geometry");
+  let layerSpec: LayerSpec | undefined;
+  if (hasGeometry && source.typename) {
+    // Style par défaut selon le thème
+    const style = source.displayStyle ?? {
+      color: "#5b8def",
+      opacity: 0.3,
+      stroke: "#3a6bd5",
+      strokeWidth: 1.5,
+    };
+
+    layerSpec = {
+      wfsUrl: endpoint.baseUrl,
+      typename: source.typename,
+      cqlFilter,
+      srsName: "EPSG:4326",
+      maxFeatures,
+      nativeCrs: endpoint.nativeCrs,
+      style,
     };
   }
+
+  // Ne PAS inclure le geojson brut dans le résultat MCP
+  // → le frontend le fetchera directement via layerSpec
 
   return {
     sourceId: source.id,
     success: true,
     features: transformed,
-    geojson,
+    layerSpec,
     totalCount: raw.totalCount,
     truncated: raw.features.length >= maxFeatures,
     resolvedPartition,
