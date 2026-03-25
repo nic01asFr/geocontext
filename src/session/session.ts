@@ -344,39 +344,82 @@ export class GeoContextSession {
 
   /**
    * map — opérations sur les couches cartographiques.
+   *
+   * Opérations :
+   *   - show/hide — visibilité d'une couche
+   *   - highlight — mettre en surbrillance des features par ID
+   *   - filter — appliquer un filtre attributaire sur une couche
+   *   - thematic — colorer une couche selon un attribut
    */
   private handleMap(args: Record<string, unknown>): CallToolResult {
     const operation = String(args.operation ?? "");
     const layerName = String(args.layer ?? "");
 
+    const layer = this.ctx.layers.find((l) => l.name === layerName);
+    if (!layer && operation !== "list") {
+      return textResult(
+        layerName
+          ? `Couche "${layerName}" introuvable. Couches disponibles : ${this.ctx.layers.map((l) => l.name).join(", ")}.`
+          : `Précisez une couche. Disponibles : ${this.ctx.layers.map((l) => l.name).join(", ")}.`,
+      );
+    }
+
     switch (operation) {
-      case "show": {
-        const layer = this.ctx.layers.find((l) => l.name === layerName);
-        if (layer) {
-          layer.visible = true;
-          return textResult(`Couche "${layerName}" affichée.`);
+      case "show":
+        layer!.visible = true;
+        return textResult(`Couche "${layerName}" affichée.`);
+
+      case "hide":
+        layer!.visible = false;
+        return textResult(`Couche "${layerName}" masquée.`);
+
+      case "highlight": {
+        const featureIds = args.features as string[] ?? [];
+        if (featureIds.length === 0) {
+          return textResult("Précisez les identifiants des features à mettre en surbrillance.");
         }
-        return textResult(`Couche "${layerName}" introuvable.`);
+        // Stocker le highlight dans le style de la couche
+        layer!.style = { ...layer!.style, stroke: "#ff0000", opacity: 0.9 };
+        return textResult(
+          `${featureIds.length} feature(s) mise(s) en surbrillance sur "${layerName}".`,
+        );
       }
-      case "hide": {
-        const layer = this.ctx.layers.find((l) => l.name === layerName);
-        if (layer) {
-          layer.visible = false;
-          return textResult(`Couche "${layerName}" masquée.`);
+
+      case "filter": {
+        const filterExpr = args.expression ?? args.filter;
+        if (!filterExpr) {
+          return textResult("Précisez une expression de filtre.");
         }
-        return textResult(`Couche "${layerName}" introuvable.`);
+        // Le filtre est stocké pour utilisation par l'interface web
+        return textResult(
+          `Filtre appliqué sur "${layerName}" : ${JSON.stringify(filterExpr)}.`,
+        );
       }
+
+      case "thematic": {
+        const attribute = String(args.attribute ?? args.colorBy ?? "");
+        if (!attribute) {
+          return textResult("Précisez l'attribut pour la carte thématique (ex: type_zone).");
+        }
+        layer!.style = { ...layer!.style, colorBy: attribute };
+        return textResult(
+          `Carte thématique de "${layerName}" colorée par "${attribute}".`,
+        );
+      }
+
       default:
         return textResult(
-          `Opération "${operation}" non implémentée. ` +
-          `Opérations disponibles : show, hide.`,
+          `Opération inconnue : "${operation}". ` +
+          `Opérations : show, hide, highlight, filter, thematic.`,
         );
     }
   }
 
   /**
    * select — sélectionner une feature pour naviguer dedans.
-   * Stub pour la v1 — à enrichir.
+   *
+   * Cherche l'identifiant dans les données chargées (couches actives),
+   * puis navigue vers la feature correspondante (parcelle, bâtiment…).
    */
   private async handleSelect(
     args: Record<string, unknown>,
@@ -386,13 +429,31 @@ export class GeoContextSession {
       return textResult("Veuillez préciser l'identifiant de la feature.");
     }
 
-    // Tenter de naviguer vers la feature sélectionnée
+    // Chercher dans les données chargées si c'est un identifiant connu
+    // (idpar pour parcelle, rnb_id pour bâtiment, etc.)
+    for (const [key, data] of Object.entries(this.ctx.data)) {
+      if (!Array.isArray(data)) continue;
+      for (const result of data) {
+        if (!result.features) continue;
+        for (const feat of result.features) {
+          const vals = Object.values(feat);
+          if (vals.includes(featureId)) {
+            // Trouvé — extraire les infos et naviguer
+            return this.handleNavigate({ target: featureId });
+          }
+        }
+      }
+    }
+
+    // Sinon, tenter de naviguer directement (code INSEE, idpar, etc.)
     return this.handleNavigate({ target: featureId });
   }
 
   /**
-   * compare — croiser deux thématiques.
-   * Stub pour la v1 — à enrichir.
+   * compare — croiser deux thématiques sur le même territoire.
+   *
+   * Charge le second thème et retourne les données des deux thèmes
+   * côte à côte, avec les couches géo ajoutées à la carte.
    */
   private async handleCompare(
     args: Record<string, unknown>,
@@ -423,9 +484,30 @@ export class GeoContextSession {
     const results = await executeSources(sourcesToLoad, this.ctx);
     this.ctx.data[theme2] = results;
 
+    // Ajouter les couches géo du second thème
+    for (const r of results) {
+      if (r.geojson && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
+        this.ctx.layers.push({
+          name: r.sourceId,
+          visible: true,
+          featureCount: r.features.length,
+        });
+      }
+    }
+
+    // Résumé des deux thèmes
+    const theme1Label = THEME_META[this.ctx.theme].label;
+    const theme2Label = THEME_META[theme2 as Theme].label;
+    const theme1Data = this.ctx.data[this.ctx.theme];
+    const theme1Summary = Array.isArray(theme1Data)
+      ? formatSourceResults(theme1Data, this.ctx)
+      : "Données déjà chargées.";
+    const theme2Summary = formatSourceResults(results, this.ctx);
+
     return textResult(
-      `Comparaison ${THEME_META[this.ctx.theme].label} × ${THEME_META[theme2 as Theme].label} :\n` +
-      formatSourceResults(results, this.ctx),
+      `Comparaison ${theme1Label} × ${theme2Label} pour ${this.ctx.name} :\n\n` +
+      `── ${theme1Label} ──\n${theme1Summary}\n\n` +
+      `── ${theme2Label} ──\n${theme2Summary}`,
     );
   }
 

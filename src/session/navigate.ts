@@ -119,12 +119,13 @@ async function resolveCommune(codeInsee: string): Promise<NavigateResult> {
 
   const props = feature.properties ?? {};
   const hierarchy = buildHierarchyFromCommune(props);
+  const name = props.nom_officiel ?? props.nom ?? codeInsee;
 
   return {
     success: true,
     level: "commune",
     code: codeInsee,
-    name: props.nom ?? codeInsee,
+    name,
     bbox: extractBbox(feature),
     hierarchy,
   };
@@ -213,11 +214,12 @@ async function resolveDepartement(code: string): Promise<NavigateResult> {
   }
 
   const props = feature.properties ?? {};
+  const name = props.nom_officiel ?? props.nom ?? code;
 
   // Chercher la région parente
   const codeRegion = props.code_insee_de_la_region ?? props.insee_reg;
   const hierarchy: Hierarchy = {
-    departement: { code, name: props.nom ?? code },
+    departement: { code, name },
   };
 
   if (codeRegion) {
@@ -226,9 +228,10 @@ async function resolveDepartement(code: string): Promise<NavigateResult> {
       `code_insee='${codeRegion}'`,
     );
     if (regionFeature?.properties) {
+      const rProps = regionFeature.properties;
       hierarchy.region = {
         code: codeRegion,
-        name: regionFeature.properties.nom ?? codeRegion,
+        name: rProps.nom_officiel ?? rProps.nom ?? codeRegion,
       };
     }
   }
@@ -237,7 +240,7 @@ async function resolveDepartement(code: string): Promise<NavigateResult> {
     success: true,
     level: "departement",
     code,
-    name: props.nom ?? code,
+    name,
     bbox: extractBbox(feature),
     hierarchy,
   };
@@ -257,15 +260,16 @@ async function resolveEpci(siren: string): Promise<NavigateResult> {
   }
 
   const props = feature.properties ?? {};
+  const name = props.nom_officiel ?? props.nom ?? siren;
 
   return {
     success: true,
     level: "epci",
     code: siren,
-    name: props.nom ?? siren,
+    name,
     bbox: extractBbox(feature),
     hierarchy: {
-      epci: { code: siren, name: props.nom ?? siren, siren },
+      epci: { code: siren, name, siren },
     },
   };
 }
@@ -355,15 +359,17 @@ function buildHierarchyFromCommune(props: Record<string, any>): Hierarchy {
   const hierarchy: Hierarchy = {};
 
   // Commune elle-même
+  // ADMINEXPRESS: code_insee, nom_officiel
   const codeInsee = props.code_insee ?? props.insee_com;
   if (codeInsee) {
     hierarchy.commune = {
       code: codeInsee,
-      name: props.nom ?? codeInsee,
+      name: props.nom_officiel ?? props.nom ?? codeInsee,
     };
   }
 
   // EPCI
+  // ADMINEXPRESS commune FK: siren_epci, nom_epci (pas toujours présent)
   const sirenEpci = props.siren_epci ?? props.code_epci;
   if (sirenEpci) {
     hierarchy.epci = {
@@ -374,6 +380,7 @@ function buildHierarchyFromCommune(props: Record<string, any>): Hierarchy {
   }
 
   // Département
+  // ADMINEXPRESS commune FK: code_insee_du_departement
   const codeDept = props.code_insee_du_departement ?? props.code_dept ?? props.insee_dep;
   if (codeDept) {
     hierarchy.departement = {
@@ -383,6 +390,7 @@ function buildHierarchyFromCommune(props: Record<string, any>): Hierarchy {
   }
 
   // Région
+  // ADMINEXPRESS commune FK: code_insee_de_la_region
   const codeRegion = props.code_insee_de_la_region ?? props.insee_reg;
   if (codeRegion) {
     hierarchy.region = {

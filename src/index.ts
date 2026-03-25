@@ -1,17 +1,15 @@
 /**
  * geocontext — MCP Server Entry Point
  *
- * Démarre le serveur MCP avec tools dynamiques pilotés par la session.
+ * Démarre le serveur MCP avec tools dynamiques et resources pilotés par la session.
  *
- * Utilise le SDK MCP direct (Server bas niveau) au lieu de mcp-framework
- * pour pouvoir :
- *   - Retourner des tools dynamiques via tools/list (getTools)
- *   - Émettre tools/list_changed après chaque changement de contexte
- *   - Adapter descriptions et enums à chaque tour
+ * Architecture :
+ *   - configureServer() configure les handlers tools + resources sur un Server
+ *   - Chaque Server a sa propre GeoContextSession (1 session = 1 contexte)
  *
  * Transports :
- *   - TRANSPORT_TYPE=stdio (défaut) → StdioServerTransport
- *   - TRANSPORT_TYPE=http → StreamableHTTPServerTransport (port 3000)
+ *   - TRANSPORT_TYPE=stdio (défaut) → 1 Server, 1 StdioServerTransport
+ *   - TRANSPORT_TYPE=http → 1 Server par connexion, StreamableHTTPServerTransport
  *
  * @see docs/navigation-context.md — cycle de navigation
  * @see docs/dynamic-tools.md — surface de tools dynamique
@@ -19,68 +17,331 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync } from "fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { randomUUID } from "crypto";
 
 import { GeoContextSession } from "./session/session.js";
+import { registry } from "./session/registry/index.js";
+import { THEME_META } from "./session/registry/tree.js";
 
-// Get the directory of the current module (dist directory)
 const __dirname = dirname(fileURLToPath(import.meta.url));
-
-// Get version from package.json
 const pkgMetadata = JSON.parse(
   readFileSync(join(__dirname, "../package.json"), "utf-8"),
 );
-const VERSION = pkgMetadata.version;
+const VERSION: string = pkgMetadata.version;
 
-async function main() {
-  const TRANSPORT_TYPE = process.env.TRANSPORT_TYPE || "stdio";
-  if (TRANSPORT_TYPE !== "stdio" && TRANSPORT_TYPE !== "http") {
-    throw new Error(`Invalid transport type: ${TRANSPORT_TYPE}`);
-  }
+// ==========================================================================
+// Configuration du serveur MCP (tools + resources)
+// ==========================================================================
 
-  // Créer le serveur MCP bas niveau avec capacité tools/list_changed
-  const server = new Server(
-    { name: "geocontext", version: VERSION },
-    {
-      capabilities: {
-        tools: { listChanged: true },
-      },
-    },
-  );
-
-  // Une session par instance stdio (1 client = 1 session)
+/**
+ * Configure les handlers tools et resources sur un Server MCP.
+ * Chaque appel crée une GeoContextSession dédiée.
+ */
+function configureServer(server: Server): GeoContextSession {
   const session = new GeoContextSession(server);
 
-  // Handler tools/list → retourne les tools dynamiques de la session
+  // --------------------------------------------------------------------
+  // Tools
+  // --------------------------------------------------------------------
+
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: session.getTools(),
   }));
 
-  // Handler tools/call → dispatch à la session
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
     return session.handleToolCall(name, args ?? {});
   });
 
-  // Transport
-  if (TRANSPORT_TYPE === "stdio") {
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-  } else {
-    // HTTP : pour l'instant, même pattern que stdio
-    // TODO: créer une session par connexion HTTP entrante
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
-    console.error(
-      "[geocontext] HTTP transport not yet implemented for dynamic session, falling back to stdio",
-    );
+  // --------------------------------------------------------------------
+  // Resources
+  // --------------------------------------------------------------------
+
+  /**
+   * resources/list — resources dynamiques selon le contexte.
+   *
+   *   geocontext://context           — toujours (état courant)
+   *   geocontext://themes/{level}    — quand territoire résolu
+   *   geocontext://actions/{theme}   — quand thème actif
+   *   geocontext://layers            — quand couches géo chargées
+   */
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const ctx = session.getContext();
+    const resources: Array<{
+      uri: string;
+      name: string;
+      description: string;
+      mimeType: string;
+    }> = [];
+
+    resources.push({
+      uri: "geocontext://context",
+      name: "Contexte de navigation",
+      description: "État courant : territoire, thème, données, couches",
+      mimeType: "application/json",
+    });
+
+    if (ctx.level) {
+      resources.push({
+        uri: `geocontext://themes/${ctx.level}`,
+        name: `Thèmes — ${ctx.name ?? ctx.level}`,
+        description: `Thèmes disponibles pour ${ctx.name ?? ctx.level}`,
+        mimeType: "application/json",
+      });
+    }
+
+    if (ctx.level && ctx.theme) {
+      resources.push({
+        uri: `geocontext://actions/${ctx.theme}`,
+        name: `Actions — ${THEME_META[ctx.theme].label}`,
+        description: `Actions dans ${THEME_META[ctx.theme].label}`,
+        mimeType: "application/json",
+      });
+    }
+
+    if (ctx.layers.length > 0) {
+      resources.push({
+        uri: "geocontext://layers",
+        name: "Couches cartographiques",
+        description: `${ctx.layers.length} couche(s) active(s)`,
+        mimeType: "application/json",
+      });
+    }
+
+    return { resources };
+  });
+
+  /**
+   * resources/read — contenu d'une resource.
+   */
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    const ctx = session.getContext();
+
+    if (uri === "geocontext://context") {
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            level: ctx.level,
+            code: ctx.code,
+            name: ctx.name,
+            bbox: ctx.bbox,
+            hierarchy: ctx.hierarchy,
+            theme: ctx.theme,
+            themes: ctx.level ? registry.getThemes(ctx.level) : [],
+            layerCount: ctx.layers.length,
+            dataKeys: Object.keys(ctx.data),
+            historyDepth: ctx.history.length,
+          }, null, 2),
+        }],
+      };
+    }
+
+    if (uri.startsWith("geocontext://themes/") && ctx.level) {
+      const themes = registry.getThemes(ctx.level);
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            level: ctx.level,
+            name: ctx.name,
+            themes: themes.map((t) => ({
+              id: t,
+              label: THEME_META[t].label,
+              description: THEME_META[t].description,
+              icon: THEME_META[t].icon,
+              actions: registry.getActions(ctx.level!, t),
+            })),
+          }, null, 2),
+        }],
+      };
+    }
+
+    if (uri.startsWith("geocontext://actions/") && ctx.level && ctx.theme) {
+      const actionDefs = registry.getActionDefs(ctx.level, ctx.theme);
+      const sources = registry.getSources(ctx.level, ctx.theme);
+      const filterDefs = sources
+        .flatMap((s) => s.userFilters ?? [])
+        .filter((f, i, arr) => arr.findIndex((x) => x.key === f.key) === i);
+
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            theme: ctx.theme,
+            label: THEME_META[ctx.theme].label,
+            actions: actionDefs,
+            filters: filterDefs.map((f) => ({ key: f.key, label: f.label, type: f.type })),
+          }, null, 2),
+        }],
+      };
+    }
+
+    if (uri === "geocontext://layers") {
+      return {
+        contents: [{
+          uri,
+          mimeType: "application/json",
+          text: JSON.stringify({
+            layers: ctx.layers.map((l) => ({
+              name: l.name,
+              visible: l.visible,
+              featureCount: l.featureCount ?? 0,
+              style: l.style,
+            })),
+          }, null, 2),
+        }],
+      };
+    }
+
+    throw new Error(`Resource inconnue : ${uri}`);
+  });
+
+  return session;
+}
+
+// ==========================================================================
+// Factories de serveur
+// ==========================================================================
+
+function createMcpServer(): Server {
+  return new Server(
+    { name: "geocontext", version: VERSION },
+    {
+      capabilities: {
+        tools: { listChanged: true },
+        resources: { listChanged: true },
+      },
+    },
+  );
+}
+
+// ==========================================================================
+// Transports
+// ==========================================================================
+
+/**
+ * Mode stdio : un seul serveur, un seul client.
+ */
+async function startStdio(): Promise<void> {
+  const server = createMcpServer();
+  configureServer(server);
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+/**
+ * Mode HTTP : un serveur + une session par connexion.
+ *
+ * Chaque requête POST /mcp crée un transport Streamable HTTP
+ * avec gestion de session. Les sessions sont identifiées par
+ * un UUID généré côté serveur.
+ */
+async function startHttp(): Promise<void> {
+  const PORT = parseInt(process.env.PORT ?? "3000", 10);
+
+  // Map de transports actifs par sessionId
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+
+  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+    const url = req.url ?? "/";
+
+    // CORS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id");
+    res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (url !== "/mcp") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found. Use POST /mcp" }));
+      return;
+    }
+
+    // Récupérer la session existante ou en créer une nouvelle
+    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+    if (sessionId && transports.has(sessionId)) {
+      // Session existante — déléguer au transport
+      const transport = transports.get(sessionId)!;
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // Nouvelle session — créer un serveur MCP + transport + session
+    if (req.method === "POST") {
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+      });
+
+      const server = createMcpServer();
+      configureServer(server);
+
+      // Nettoyer à la fermeture
+      transport.onclose = () => {
+        const sid = transport.sessionId;
+        if (sid) transports.delete(sid);
+      };
+
+      await server.connect(transport);
+
+      // Stocker le transport
+      if (transport.sessionId) {
+        transports.set(transport.sessionId, transport);
+      }
+
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    // Requête sans session et non-POST
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Bad request. Start with POST /mcp" }));
+  });
+
+  httpServer.listen(PORT, () => {
+    console.error(`[geocontext] HTTP server listening on http://localhost:${PORT}/mcp`);
+  });
+}
+
+// ==========================================================================
+// Main
+// ==========================================================================
+
+async function main() {
+  const TRANSPORT_TYPE = process.env.TRANSPORT_TYPE || "stdio";
+
+  switch (TRANSPORT_TYPE) {
+    case "stdio":
+      await startStdio();
+      break;
+    case "http":
+      await startHttp();
+      break;
+    default:
+      throw new Error(`Invalid transport type: ${TRANSPORT_TYPE}`);
   }
 }
 
