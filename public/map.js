@@ -68,6 +68,30 @@ const GeoMap = {
       this._updateBadge(ctx);
     });
 
+    // Hover data-panel → highlight feature sur la carte
+    GeoState.on("feature-hover", (idx) => {
+      // Pour chaque couche GeoJSON active, mettre en surbrillance la feature idx
+      for (const lid of this._layerIds) {
+        if (!this.map.getLayer(lid)) continue;
+        const type = this.map.getLayer(lid).type;
+        if (idx !== null && idx !== undefined) {
+          if (type === "fill") {
+            this.map.setPaintProperty(lid, "fill-opacity", [
+              "case", ["==", ["id"], idx], 0.6, 0.2,
+            ]);
+          } else if (type === "circle") {
+            this.map.setPaintProperty(lid, "circle-radius", [
+              "case", ["==", ["id"], idx], 8, 5,
+            ]);
+          }
+        } else {
+          // Reset
+          if (type === "fill") this.map.setPaintProperty(lid, "fill-opacity", 0.2);
+          if (type === "circle") this.map.setPaintProperty(lid, "circle-radius", 5);
+        }
+      }
+    });
+
     // Écouter les nouvelles couches
     GeoState.on("layers-changed", (layers) => {
       // Les couches sont ajoutées via addGeoJsonLayer

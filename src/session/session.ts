@@ -25,6 +25,7 @@ import { buildActionDescription, buildActionEnums, THEME_META } from "./registry
 import { executeSource, executeSources } from "./executors/executor.js";
 import { formatFeatureAsText, extractPrimaryFields } from "./registry/fields.js";
 import { resolveTerritory } from "./navigate.js";
+import { wfsClient } from "../gpf/wfs.js";
 import type { SourceResult } from "./registry/types.js";
 import {
   createEmptyContext,
@@ -304,6 +305,11 @@ export class GeoContextSession {
 
   /**
    * search — recherche libre (géocodage + WFS fuzzy search).
+   *
+   * Ordre de résolution :
+   *   1. Tentative comme lieu (code INSEE, texte, coordonnées) → navigate suggestion
+   *   2. Recherche fuzzy dans les types WFS Géoplateforme → liste de couches
+   *   3. Aucun résultat
    */
   private async handleSearch(
     args: Record<string, unknown>,
@@ -313,13 +319,30 @@ export class GeoContextSession {
       return textResult("Veuillez préciser un terme de recherche.");
     }
 
-    // Tenter d'abord comme navigation (lieu)
+    // 1. Tenter comme navigation (lieu)
     const navResult = await resolveTerritory(query, this.ctx);
     if (navResult.success) {
       return textResult(
         `Lieu trouvé : ${navResult.name} (${navResult.level}, ${navResult.code}). ` +
         `Utilisez navigate("${navResult.code}") pour y aller.`,
       );
+    }
+
+    // 2. Recherche fuzzy dans les types WFS Géoplateforme
+    try {
+      const featureTypes = await wfsClient.searchFeatureTypes(query, 5);
+      if (featureTypes.length > 0) {
+        const lines = featureTypes.map(
+          (ft) => `- **${ft.name}** : ${ft.title ?? ""}`,
+        );
+        return textResult(
+          `${featureTypes.length} type(s) de données trouvé(s) :\n` +
+          lines.join("\n") +
+          `\n\nUtilisez une action thématique pour explorer ces données.`,
+        );
+      }
+    } catch {
+      // WFS non disponible (réseau, capabilities non chargées…) — on continue
     }
 
     return textResult(`Aucun résultat pour « ${query} ».`);

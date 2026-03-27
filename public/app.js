@@ -80,6 +80,29 @@
     }
   }
 
+  /**
+   * Gère une navigation : efface les anciennes couches, appelle navigate,
+   * rafraîchit l'état et affiche le résultat.
+   */
+  async function doNavigate(target) {
+    statusEl.className = "status loading";
+    try {
+      // Effacer les couches de l'ancien territoire
+      GeoMap.clearLayers();
+      DataPanel.hide();
+
+      const result = await client.callTool("navigate", { target });
+      const msg = extractText(result);
+      if (msg) Chat.addMessage("assistant", msg);
+
+      await GeoState.refreshAll(client);
+    } catch (e) {
+      Chat.addMessage("system", `Erreur : ${e.message}`);
+    } finally {
+      statusEl.className = "status online";
+    }
+  }
+
   // ================================================================
   // 4. Recherche (barre supérieure)
   // ================================================================
@@ -87,20 +110,8 @@
   async function doSearch() {
     const text = searchInput.value.trim();
     if (!text) return;
-
-    statusEl.className = "status loading";
-    try {
-      const result = await client.callTool("navigate", { target: text });
-      const msg = extractText(result);
-      if (msg) Chat.addMessage("assistant", msg);
-
-      await GeoState.refreshAll(client);
-      searchInput.value = "";
-    } catch (e) {
-      Chat.addMessage("system", `Erreur : ${e.message}`);
-    } finally {
-      statusEl.className = "status online";
-    }
+    searchInput.value = "";
+    await doNavigate(text);
   }
 
   searchBtn.addEventListener("click", doSearch);
@@ -114,40 +125,18 @@
 
   // Clic carte → navigate par coordonnées
   GeoState.on("map-click", async ({ lon, lat }) => {
-    statusEl.className = "status loading";
-    try {
-      const target = `${lon.toFixed(5)},${lat.toFixed(5)}`;
-      const result = await client.callTool("navigate", { target });
-      const msg = extractText(result);
-      if (msg) Chat.addMessage("assistant", msg);
-
-      await GeoState.refreshAll(client);
-    } catch (e) {
-      Chat.addMessage("system", `Erreur : ${e.message}`);
-    } finally {
-      statusEl.className = "status online";
-    }
+    await doNavigate(`${lon.toFixed(5)},${lat.toFixed(5)}`);
   });
 
   // Clic hiérarchie → navigate
   GeoState.on("navigate-request", async (code) => {
-    statusEl.className = "status loading";
-    try {
-      const result = await client.callTool("navigate", { target: code });
-      const msg = extractText(result);
-      if (msg) Chat.addMessage("assistant", msg);
-
-      await GeoState.refreshAll(client);
-    } catch (e) {
-      Chat.addMessage("system", `Erreur : ${e.message}`);
-    } finally {
-      statusEl.className = "status online";
-    }
+    await doNavigate(code);
   });
 
   // Clic thème/action → action + fetch GeoJSON direct
   GeoState.on("action-request", async (action) => {
     statusEl.className = "status loading";
+    DataPanel.showLoading(action);
     try {
       const result = await client.callTool("action", { action });
       const text = extractText(result);
@@ -162,6 +151,7 @@
       await GeoState.refreshAll(client);
     } catch (e) {
       Chat.addMessage("system", `Erreur : ${e.message}`);
+      DataPanel.hide();
     } finally {
       statusEl.className = "status online";
     }

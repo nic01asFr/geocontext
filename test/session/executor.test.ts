@@ -292,3 +292,290 @@ describe("executeSources — parallèle", () => {
     expect(results[1].error).toMatch(/Network fail/);
   });
 });
+
+// ==========================================================================
+// REST Executor
+// ==========================================================================
+
+describe("executeSource — REST", () => {
+  test("construit l'URL REST avec paramètres de pivot", async () => {
+    const source: SourceDef = {
+      id: "rest_source",
+      label: "REST test",
+      description: "Test REST",
+      endpoint: "dvf" as any,
+      path: "/mutations",
+      levels: ["commune"],
+      theme: "economie" as any,
+      action: "transactions",
+      pivot: {
+        strategy: "attribute",
+        from: "context.code",
+        attribute: "code_commune",
+      },
+      fields: [
+        { key: "date_mutation", label: "Date", type: "string" },
+        { key: "valeur_fonciere", label: "Valeur", type: "number" },
+      ],
+      priority: "required",
+    };
+
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        results: [
+          { date_mutation: "2023-01-15", valeur_fonciere: 150000 },
+          { date_mutation: "2023-03-20", valeur_fonciere: 85000 },
+        ],
+      }),
+    );
+
+    const result = await executeSource(source, ctxLoray());
+
+    expect(result.success).toBe(true);
+    expect(result.features).toHaveLength(2);
+    expect(result.features[0]).toMatchObject({ date_mutation: "2023-01-15" });
+
+    // Vérifier que l'URL contient le paramètre de pivot
+    const callUrl = mockFetch.mock.calls[0][0] as string;
+    expect(callUrl).toContain("code_commune=25349");
+    // Pas de layerSpec pour REST (pas de géométries WFS)
+    expect(result.layerSpec).toBeUndefined();
+  });
+
+  test("gère les réponses de type tableau direct", async () => {
+    const source: SourceDef = {
+      id: "rest_array",
+      label: "Array REST",
+      description: "Test",
+      endpoint: "dvf" as any,
+      levels: ["commune"],
+      theme: "economie" as any,
+      action: "test",
+      pivot: {
+        strategy: "attribute",
+        from: "context.code",
+        attribute: "code",
+      },
+      fields: [{ key: "nom", label: "Nom", type: "string" }],
+      priority: "required",
+    };
+
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse([{ nom: "Item A" }, { nom: "Item B" }]),
+    );
+
+    const result = await executeSource(source, ctxLoray());
+    expect(result.success).toBe(true);
+    expect(result.features).toHaveLength(2);
+  });
+});
+
+// ==========================================================================
+// WFS — attribute_with_fallback pivot
+// ==========================================================================
+
+describe("executeSource — attribute_with_fallback", () => {
+  test("utilise le primaire quand il retourne des résultats", async () => {
+    const source: SourceDef = {
+      id: "fallback_source",
+      label: "Fallback test",
+      description: "Test",
+      endpoint: "gpf_wfs" as any,
+      typename: "URBANISME:zone_urba",
+      levels: ["commune"],
+      theme: "urbanisme" as any,
+      action: "zonages",
+      pivot: {
+        strategy: "attribute_with_fallback",
+        attribute: "partition",
+        primary: { from: "context.code" },
+        fallback: {
+          from: ["hierarchy.epci.siren", "context.code"],
+          separator: "_",
+        },
+        cacheKey: "_partition_urba",
+      },
+      fields: [{ key: "typezone", label: "Type", type: "string" }],
+      priority: "required",
+    };
+
+    // Primaire retourne des résultats → pas de fallback
+    mockFetch.mockResolvedValueOnce(
+      wfsResponse([{ typezone: "U" }, { typezone: "N" }]),
+    );
+
+    const ctx = ctxLoray();
+    ctx.hierarchy.epci = { code: "200023075", name: "CC Test", siren: "200023075" };
+
+    const result = await executeSource(source, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.features).toHaveLength(2);
+    // Un seul appel WFS (primaire suffisant)
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("partition");
+    expect(url).toContain("25349");
+  });
+
+  test("bascule sur le fallback quand le primaire retourne 0 résultats", async () => {
+    const source: SourceDef = {
+      id: "fallback_source2",
+      label: "Fallback test 2",
+      description: "Test",
+      endpoint: "gpf_wfs" as any,
+      typename: "URBANISME:zone_urba",
+      levels: ["commune"],
+      theme: "urbanisme" as any,
+      action: "zonages",
+      pivot: {
+        strategy: "attribute_with_fallback",
+        attribute: "partition",
+        primary: { from: "context.code" },
+        fallback: {
+          from: ["hierarchy.epci.siren", "context.code"],
+          separator: "_",
+        },
+        cacheKey: "_partition_urba",
+      },
+      fields: [{ key: "typezone", label: "Type", type: "string" }],
+      priority: "required",
+    };
+
+    // Primaire vide → fallback avec résultats
+    mockFetch
+      .mockResolvedValueOnce(wfsResponse([]))        // primaire vide
+      .mockResolvedValueOnce(wfsResponse([{ typezone: "AU" }])); // fallback
+
+    const ctx = ctxLoray();
+    ctx.hierarchy.epci = { code: "200023075", name: "CC Test", siren: "200023075" };
+
+    const result = await executeSource(source, ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.features).toHaveLength(1);
+    expect(result.features[0]).toMatchObject({ typezone: "AU" });
+    // Deux appels : primaire + fallback
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const fallbackUrl = mockFetch.mock.calls[1][0] as string;
+    expect(fallbackUrl).toContain("200023075_25349");
+  });
+});
+
+// ==========================================================================
+// WFS — spatial pivot
+// ==========================================================================
+
+describe("executeSource — spatial pivot", () => {
+  test("construit un filtre BBOX pour le pivot spatial", async () => {
+    const source: SourceDef = {
+      id: "spatial_source",
+      label: "Spatial test",
+      description: "Test",
+      endpoint: "gpf_wfs" as any,
+      typename: "ENVIRO:layer",
+      levels: ["commune"],
+      theme: "environnement" as any,
+      action: "test",
+      pivot: {
+        strategy: "spatial",
+        spatialOp: "bbox",
+        from: "context.bbox",
+      },
+      fields: [{ key: "nom", label: "Nom", type: "string" }],
+      priority: "required",
+    };
+
+    mockFetch.mockResolvedValueOnce(
+      wfsResponse([{ nom: "Zone A" }]),
+    );
+
+    const result = await executeSource(source, ctxLoray());
+
+    expect(result.success).toBe(true);
+    expect(result.features).toHaveLength(1);
+    // L'URL doit contenir un filtre spatial BBOX
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("BBOX");
+  });
+
+  test("retourne erreur quand la bbox manque", async () => {
+    const source: SourceDef = {
+      id: "spatial_no_bbox",
+      label: "Spatial no bbox",
+      description: "Test",
+      endpoint: "gpf_wfs" as any,
+      typename: "ENVIRO:layer",
+      levels: ["commune"],
+      theme: "environnement" as any,
+      action: "test",
+      pivot: {
+        strategy: "spatial",
+        spatialOp: "bbox",
+        from: "context.bbox",
+      },
+      fields: [],
+      priority: "required",
+    };
+
+    const ctx = createEmptyContext();
+    ctx.level = "commune";
+    ctx.code = "25349";
+    // Pas de bbox
+
+    const result = await executeSource(source, ctx);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/manquante/i);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ==========================================================================
+// WFS — user filters
+// ==========================================================================
+
+describe("executeSource — user filters", () => {
+  test("combine le pivot et les filtres utilisateur dans le CQL", async () => {
+    const source: SourceDef = {
+      id: "filtered_source",
+      label: "Filtered test",
+      description: "Test",
+      endpoint: "gpf_wfs" as any,
+      typename: "URBANISME:zone_urba",
+      levels: ["commune"],
+      theme: "urbanisme" as any,
+      action: "zonages",
+      pivot: {
+        strategy: "attribute",
+        from: "context.code",
+        attribute: "code_insee",
+      },
+      fields: [{ key: "typezone", label: "Type", type: "string" }],
+      userFilters: [
+        {
+          key: "type_zone",
+          label: "Type de zone",
+          type: "enum",
+          values: { U: "Urbain", AU: "À Urbaniser", A: "Agricole", N: "Naturel" },
+          toCql: "typezone = '{value}'",
+        },
+      ],
+      priority: "required",
+    };
+
+    mockFetch.mockResolvedValueOnce(wfsResponse([{ typezone: "U" }]));
+
+    const result = await executeSource(
+      source,
+      ctxLoray(),
+      { type_zone: "U" },
+    );
+
+    expect(result.success).toBe(true);
+    // Le CQL_FILTER doit contenir à la fois le pivot ET le filtre utilisateur
+    const url = mockFetch.mock.calls[0][0] as string;
+    expect(url).toContain("code_insee");
+    expect(url).toContain("25349");
+    expect(url).toContain("typezone");
+  });
+});

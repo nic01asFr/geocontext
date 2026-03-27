@@ -74,6 +74,10 @@ const GeoFetcher = {
       }
     } catch (err) {
       console.warn(`[geo-fetcher] ${sourceId}: ${err.message}`);
+      // Notifier l'UI (le chat affiche l'erreur)
+      if (window.Chat) {
+        Chat.addMessage("system", `Couche "${sourceId}" : chargement échoué (${err.message})`);
+      }
     }
   },
 

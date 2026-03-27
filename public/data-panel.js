@@ -20,6 +20,15 @@ const DataPanel = {
     document.getElementById("data-panel").classList.add("hidden");
   },
 
+  /** Affiche un état de chargement. */
+  showLoading(title) {
+    const titleEl = document.getElementById("data-title");
+    const contentEl = document.getElementById("data-content");
+    titleEl.textContent = title || "Chargement…";
+    contentEl.innerHTML = '<div style="text-align:center;padding:24px"><span class="loading-spinner"></span></div>';
+    this.show();
+  },
+
   /**
    * Affiche les résultats d'un tool call MCP.
    *
