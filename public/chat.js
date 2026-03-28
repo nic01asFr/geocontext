@@ -196,20 +196,21 @@ const Chat = {
 
     if (role === "tool-call") {
       div.textContent = `→ ${text}`;
-    } else if (role === "assistant") {
-      // Formatage minimal markdown
-      div.innerHTML = this._formatMarkdown(text);
     } else {
-      div.textContent = text;
+      // assistant + system : formatage markdown avec échappement HTML
+      div.innerHTML = this._formatMarkdown(text);
     }
 
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
   },
 
-  /** Formatage markdown minimal. */
+  /** Formatage markdown minimal (avec échappement HTML préalable). */
   _formatMarkdown(text) {
     return text
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/`(.+?)`/g, "<code>$1</code>")
       .replace(/\n/g, "<br>");
