@@ -144,7 +144,10 @@ export const HYDRO_QUALITE_STATIONS: SourceDef = {
     { key: "nom_commune", label: "Commune", type: "string", primary: false },
     { key: "date_debut_mesure", label: "Début mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
     { key: "date_fin_mesure", label: "Fin mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
+    { key: "longitude", label: "Longitude", type: "number", primary: false },
+    { key: "latitude", label: "Latitude", type: "number", primary: false },
   ],
+  geoFields: { lon: "longitude", lat: "latitude" },
   priority: "optional",
 };
 

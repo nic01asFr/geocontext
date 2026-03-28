@@ -271,14 +271,6 @@ function finalizeWfsResult(
   const hasGeometry = source.fields.some((f) => f.type === "geometry");
   let layerSpec: LayerSpec | undefined;
   if (hasGeometry && source.typename) {
-    // Style par défaut selon le thème
-    const style = source.displayStyle ?? {
-      color: "#5b8def",
-      opacity: 0.3,
-      stroke: "#3a6bd5",
-      strokeWidth: 1.5,
-    };
-
     layerSpec = {
       wfsUrl: endpoint.baseUrl,
       typename: source.typename,
@@ -286,7 +278,15 @@ function finalizeWfsResult(
       srsName: "EPSG:4326",
       maxFeatures,
       nativeCrs: endpoint.nativeCrs,
-      style,
+      // displayStyle uniquement si explicitement défini sur la source
+      // sinon le frontend utilise la palette thématique (styles.js)
+      style: source.displayStyle,
+      theme: source.theme,
+      label: source.label,
+      primaryFields: source.fields
+        .filter((f) => f.primary && f.type !== "geometry")
+        .map((f) => f.key),
+      featureCount: transformed.length,
     };
   }
 
@@ -394,10 +394,48 @@ async function executeRestSource(
     });
   }
 
+  // Construire un layerSpec inline si la source a des champs de coordonnées
+  let layerSpec: LayerSpec | undefined;
+  if (source.geoFields && transformed.length > 0) {
+    const { lon, lat } = source.geoFields;
+    const geoFeatures = transformed
+      .filter((f) => f[lon] != null && f[lat] != null)
+      .map((f, i) => ({
+        type: "Feature" as const,
+        id: i,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [Number(f[lon]), Number(f[lat])],
+        },
+        properties: Object.fromEntries(
+          Object.entries(f).filter(([k]) => k !== lon && k !== lat),
+        ),
+      }));
+
+    if (geoFeatures.length > 0) {
+      layerSpec = {
+        type: "inline",
+        inlineGeojson: { type: "FeatureCollection", features: geoFeatures },
+        wfsUrl: "",
+        typename: "",
+        cqlFilter: "",
+        srsName: "EPSG:4326",
+        maxFeatures: geoFeatures.length,
+        theme: source.theme,
+        label: source.label,
+        primaryFields: source.fields
+          .filter((f) => f.primary && f.type !== "geometry")
+          .map((f) => f.key),
+        featureCount: geoFeatures.length,
+      };
+    }
+  }
+
   return {
     sourceId: source.id,
     success: true,
     features: transformed,
+    layerSpec,
     totalCount: json.total ?? json.count ?? json.header?.total ?? rawFeatures.length,
     truncated: rawFeatures.length >= endpoint.maxFeatures,
   };

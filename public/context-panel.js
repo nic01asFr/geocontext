@@ -10,6 +10,7 @@ const ContextPanel = {
     GeoState.on("context-changed", (ctx) => this.renderHierarchy(ctx));
     GeoState.on("themes-changed", (themes) => this.renderThemes(themes));
     GeoState.on("tools-changed", () => this.renderActions());
+    GeoState.on("action-counts-changed", () => this.renderActions());
   },
 
   // ================================================================
@@ -129,17 +130,27 @@ const ContextPanel = {
       return;
     }
 
+    const counts = GeoState.actionCounts;
+
+    // Filtrer les actions avec 0 résultats connus
+    const visibleEnums = enums.filter((a) => counts[a] === undefined || counts[a] > 0);
+
+    if (visibleEnums.length === 0) {
+      section.classList.add("hidden");
+      return;
+    }
+
     section.classList.remove("hidden");
     titleEl.textContent = `Actions — ${GeoState.context.theme}`;
 
-    el.innerHTML = enums
-      .map(
-        (a) => `
-        <button class="action-btn" data-action="${a}">
-          ${a}
-        </button>
-      `,
-      )
+    el.innerHTML = visibleEnums
+      .map((a) => {
+        const count = counts[a];
+        const badge = count !== undefined
+          ? `<span class="action-count">${count}</span>`
+          : "";
+        return `<button class="action-btn" data-action="${a}">${a}${badge}</button>`;
+      })
       .join("");
 
     el.querySelectorAll(".action-btn").forEach((btn) => {

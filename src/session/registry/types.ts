@@ -501,6 +501,16 @@ export interface SourceDef {
     stroke?: string;
     strokeWidth?: number;
   };
+
+  /**
+   * Champs de coordonnées pour les sources REST qui retournent des points.
+   * Ex: { lon: "x", lat: "y" } pour les ICPE Georisques.
+   * Quand défini, un layerSpec inline GeoJSON est généré automatiquement.
+   */
+  geoFields?: {
+    lon: string;
+    lat: string;
+  };
 }
 
 // ==========================================================================
@@ -685,6 +695,28 @@ export interface LayerSpec {
     stroke?: string;
     strokeWidth?: number;
   };
+
+  /**
+   * Type de layerSpec.
+   * - "wfs" (défaut) : fetch WFS côté frontend
+   * - "inline" : GeoJSON directement inclus (petits datasets REST avec coordonnées)
+   */
+  type?: "wfs" | "inline";
+
+  /** GeoJSON inline (uniquement pour type="inline"). */
+  inlineGeojson?: object;
+
+  /** Nombre de features chargées (pour badge sur les boutons d'action) */
+  featureCount?: number;
+
+  /** Thème de la source (pour style thématique côté frontend) */
+  theme?: string;
+
+  /** Label lisible de la source (titre de popup) */
+  label?: string;
+
+  /** Champs primaires à afficher dans les popups */
+  primaryFields?: string[];
 }
 
 // ==========================================================================

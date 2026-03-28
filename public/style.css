@@ -513,3 +513,64 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+
+/* ── Popups carte ── */
+
+.geocontext-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  font-size: 12px;
+  min-width: 160px;
+}
+
+.map-popup {
+  padding: 10px 12px;
+  background: var(--bg-panel, #1e2432);
+  color: var(--text, #dce0ec);
+  border-radius: 6px;
+}
+
+.popup-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--accent, #5b8def);
+  border-bottom: 1px solid var(--border, #2d3349);
+  padding-bottom: 4px;
+}
+
+.popup-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.popup-table td {
+  padding: 2px 4px;
+  vertical-align: top;
+}
+
+.popup-table td.pk {
+  color: var(--text-dim, #8890a8);
+  white-space: nowrap;
+  padding-right: 8px;
+  font-size: 11px;
+}
+
+/* ── Badges de comptage sur les boutons d'action ── */
+
+.action-count {
+  display: inline-block;
+  margin-left: 6px;
+  background: var(--accent, #5b8def);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  vertical-align: middle;
+  line-height: 14px;
+  min-width: 16px;
+  text-align: center;
+}

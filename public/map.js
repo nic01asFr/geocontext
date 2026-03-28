@@ -1,15 +1,20 @@
 /**
  * Carte MapLibre GL JS pour geocontext.
  *
- * - Fond de carte IGN Plan v2 (WMTS)
- * - Couches GeoJSON dynamiques (ajoutées par le serveur MCP)
- * - Clic → reverse geocoding (navigate par coordonnées)
- * - Zoom adaptatif = niveau adaptatif
+ * Comportement :
+ *   - Clic sur une feature → popup avec propriétés (pas de navigate)
+ *   - Clic sur fond de carte → navigate par coordonnées
+ *   - Couche "territoire" : contour pointillé de l'entité sélectionnée
+ *   - Couches thématiques : styles par thème, expression data-driven pour PLU
  */
+
+const BOUNDARY_ID = "_territory_boundary";
 
 const GeoMap = {
   map: null,
-  _layerIds: new Set(),
+  _layerIds: new Set(),      // Couches thématiques (hors limite territoire)
+  _layerMeta: new Map(),     // sourceId → { label, primaryFields, theme }
+  _popup: null,
 
   /** Initialise la carte MapLibre. */
   init() {
@@ -43,10 +48,17 @@ const GeoMap = {
           },
         ],
       },
-      center: [2.5, 46.8], // France métropolitaine
+      center: [2.5, 46.8],
       zoom: 5.5,
       maxZoom: 20,
       minZoom: 3,
+    });
+
+    this._popup = new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: false,
+      maxWidth: "320px",
+      className: "geocontext-popup",
     });
 
     // Contrôles
@@ -56,10 +68,24 @@ const GeoMap = {
       "bottom-left",
     );
 
-    // Clic carte → navigate par coordonnées
+    // Clic : feature → popup, fond carte → navigate
     this.map.on("click", (e) => {
-      const { lng, lat } = e.lngLat;
-      GeoState.emit("map-click", { lon: lng, lat });
+      const hit = this._getTopFeature(e.point);
+      if (hit) {
+        const meta = this._layerMeta.get(hit.sourceId) || {};
+        const html = GeoStyles.popupHtml(meta.label, hit.feature.properties || {}, meta.primaryFields);
+        this._popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map);
+        GeoState.emit("feature-click", { feature: hit.feature, meta });
+      } else {
+        this._popup.remove();
+        GeoState.emit("map-click", { lon: e.lngLat.lng, lat: e.lngLat.lat });
+      }
+    });
+
+    // Curseur pointer sur les couches interactives
+    this.map.on("mousemove", (e) => {
+      const hit = this._getTopFeature(e.point);
+      this.map.getCanvas().style.cursor = hit ? "pointer" : "";
     });
 
     // Écouter les changements de contexte
@@ -70,14 +96,13 @@ const GeoMap = {
 
     // Hover data-panel → highlight feature sur la carte
     GeoState.on("feature-hover", (idx) => {
-      // Pour chaque couche GeoJSON active, mettre en surbrillance la feature idx
       for (const lid of this._layerIds) {
         if (!this.map.getLayer(lid)) continue;
         const type = this.map.getLayer(lid).type;
         if (idx !== null && idx !== undefined) {
           if (type === "fill") {
             this.map.setPaintProperty(lid, "fill-opacity", [
-              "case", ["==", ["id"], idx], 0.6, 0.2,
+              "case", ["==", ["id"], idx], 0.65, 0.25,
             ]);
           } else if (type === "circle") {
             this.map.setPaintProperty(lid, "circle-radius", [
@@ -85,17 +110,29 @@ const GeoMap = {
             ]);
           }
         } else {
-          // Reset
-          if (type === "fill") this.map.setPaintProperty(lid, "fill-opacity", 0.2);
+          if (type === "fill") this.map.setPaintProperty(lid, "fill-opacity", 0.3);
           if (type === "circle") this.map.setPaintProperty(lid, "circle-radius", 5);
         }
       }
     });
+  },
 
-    // Écouter les nouvelles couches
-    GeoState.on("layers-changed", (layers) => {
-      // Les couches sont ajoutées via addGeoJsonLayer
-    });
+  /**
+   * Retourne la première feature thématique touchée par un clic.
+   * @returns {{ feature, sourceId } | null}
+   */
+  _getTopFeature(point) {
+    const layerArr = [...this._layerIds].filter(lid => this.map.getLayer(lid));
+    if (layerArr.length === 0) return null;
+
+    const features = this.map.queryRenderedFeatures(point, { layers: layerArr });
+    if (!features || features.length === 0) return null;
+
+    const f = features[0];
+    // Retrouver le sourceId depuis le layer id (ex: "hydro_cours_eau-fill" → "hydro_cours_eau")
+    const lid = f.layer.id;
+    const sourceId = lid.replace(/-fill$/, "").replace(/-line$/, "");
+    return { feature: f, sourceId };
   },
 
   /**
@@ -105,28 +142,34 @@ const GeoMap = {
     if (!bbox || bbox.length !== 4) return;
     this.map.fitBounds(
       [[bbox[0], bbox[1]], [bbox[2], bbox[3]]],
-      { padding: 40, duration: 800 },
+      { padding: 50, duration: 800 },
     );
   },
 
   /**
-   * Ajoute une couche GeoJSON sur la carte.
+   * Ajoute une couche GeoJSON thématique sur la carte.
+   * @param {string} id
+   * @param {Object} geojson
+   * @param {Object} style - style de base (color, opacity, stroke, strokeWidth)
+   * @param {Object} [meta] - { label, primaryFields, theme }
    */
-  addGeoJsonLayer(id, geojson, style = {}) {
-    if (!this.map) return;
-
-    // Supprimer si elle existe déjà
+  addGeoJsonLayer(id, geojson, style = {}, meta = {}) {
+    if (!this.map || !this.map.isStyleLoaded()) return;
     this.removeLayer(id);
 
     const sourceId = `src-${id}`;
-    this.map.addSource(sourceId, {
-      type: "geojson",
-      data: geojson,
-    });
+    this.map.addSource(sourceId, { type: "geojson", data: geojson });
 
-    // Détecter le type de géométrie
     const features = geojson.features || [];
     const geomType = features[0]?.geometry?.type || "Point";
+    const theme = meta.theme || style.theme;
+
+    // Résoudre le style :
+    //   1. Palette thématique (GeoStyles) — couleurs par thème
+    //   2. Écrasé par le displayStyle explicite de la source (si non vide)
+    const base = theme ? GeoStyles.forTheme(theme) : { color: "#5b8def", opacity: 0.3, stroke: "#3a6bd5", strokeWidth: 1.5 };
+    const hasExplicitStyle = style && Object.keys(style).some(k => style[k] !== undefined);
+    const resolved = hasExplicitStyle ? Object.assign({}, base, style) : base;
 
     if (geomType === "Point" || geomType === "MultiPoint") {
       this.map.addLayer({
@@ -134,21 +177,27 @@ const GeoMap = {
         type: "circle",
         source: sourceId,
         paint: {
-          "circle-radius": style.radius || 5,
-          "circle-color": style.color || "#5b8def",
-          "circle-stroke-width": 1,
-          "circle-stroke-color": "#fff",
-          "circle-opacity": style.opacity || 0.8,
+          "circle-radius": style.radius || 6,
+          "circle-color": resolved.color,
+          "circle-stroke-width": 1.5,
+          "circle-stroke-color": resolved.stroke || "#fff",
+          "circle-opacity": resolved.opacity || 0.85,
         },
       });
+      this._layerIds.add(id);
+
     } else if (geomType.includes("Polygon")) {
+      // PLU : coloration data-driven par typezone
+      const hasPlu = features.some(f => f.properties?.typezone);
+      const fillColor = hasPlu ? GeoStyles.pluFillColor() : resolved.color;
+
       this.map.addLayer({
         id: `${id}-fill`,
         type: "fill",
         source: sourceId,
         paint: {
-          "fill-color": style.color || "#5b8def",
-          "fill-opacity": style.opacity || 0.2,
+          "fill-color": fillColor,
+          "fill-opacity": resolved.opacity || 0.3,
         },
       });
       this.map.addLayer({
@@ -156,29 +205,79 @@ const GeoMap = {
         type: "line",
         source: sourceId,
         paint: {
-          "line-color": style.stroke || style.color || "#5b8def",
-          "line-width": style.strokeWidth || 1.5,
+          "line-color": resolved.stroke || resolved.color,
+          "line-width": resolved.strokeWidth || 1.5,
         },
       });
       this._layerIds.add(`${id}-fill`);
       this._layerIds.add(`${id}-line`);
+
     } else {
+      // Lignes (cours d'eau, etc.)
       this.map.addLayer({
         id,
         type: "line",
         source: sourceId,
         paint: {
-          "line-color": style.color || "#5b8def",
-          "line-width": style.strokeWidth || 2,
+          "line-color": resolved.color,
+          "line-width": resolved.strokeWidth || 2,
+          "line-opacity": resolved.opacity || 0.85,
         },
       });
+      this._layerIds.add(id);
     }
 
-    this._layerIds.add(id);
+    // Stocker le meta pour les popups
+    this._layerMeta.set(id, meta);
   },
 
   /**
-   * Supprime une couche et sa source.
+   * Ajoute le contour du territoire comme couche de contexte (pointillé).
+   * Remplace l'ancienne couche territoire si elle existe.
+   */
+  addTerritoryBoundary(geojson) {
+    if (!this.map || !this.map.isStyleLoaded()) return;
+    this.clearBoundary();
+
+    const sourceId = `src-${BOUNDARY_ID}`;
+    this.map.addSource(sourceId, { type: "geojson", data: geojson });
+
+    // Fond très léger + contour pointillé distinctif
+    this.map.addLayer({
+      id: `${BOUNDARY_ID}-fill`,
+      type: "fill",
+      source: sourceId,
+      paint: {
+        "fill-color": "#4a90d9",
+        "fill-opacity": 0.04,
+      },
+    });
+    this.map.addLayer({
+      id: `${BOUNDARY_ID}-line`,
+      type: "line",
+      source: sourceId,
+      paint: {
+        "line-color": "#2a70b9",
+        "line-width": 2,
+        "line-dasharray": [4, 3],
+        "line-opacity": 0.7,
+      },
+    });
+  },
+
+  /** Supprime la couche territoire. */
+  clearBoundary() {
+    if (!this.map) return;
+    const toRemove = [`${BOUNDARY_ID}-fill`, `${BOUNDARY_ID}-line`];
+    for (const lid of toRemove) {
+      if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+    }
+    const sourceId = `src-${BOUNDARY_ID}`;
+    if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
+  },
+
+  /**
+   * Supprime une couche thématique et sa source.
    */
   removeLayer(id) {
     if (!this.map) return;
@@ -189,6 +288,29 @@ const GeoMap = {
     }
     const sourceId = `src-${id}`;
     if (this.map.getSource(sourceId)) this.map.removeSource(sourceId);
+    this._layerMeta.delete(id);
+  },
+
+  /**
+   * Supprime toutes les couches thématiques (pas la limite territoire).
+   */
+  clearLayers() {
+    if (!this.map) return;
+    for (const lid of [...this._layerIds]) {
+      if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+    }
+    this._layerIds.clear();
+    this._layerMeta.clear();
+    this._popup.remove();
+    // Supprimer les sources src-* sauf la limite territoire
+    const style = this.map.getStyle();
+    if (style?.sources) {
+      for (const sid of Object.keys(style.sources)) {
+        if (sid.startsWith("src-") && sid !== `src-${BOUNDARY_ID}`) {
+          if (this.map.getSource(sid)) this.map.removeSource(sid);
+        }
+      }
+    }
   },
 
   /**
@@ -200,23 +322,6 @@ const GeoMap = {
     for (const lid of toToggle) {
       if (this.map.getLayer(lid)) {
         this.map.setLayoutProperty(lid, "visibility", visibility);
-      }
-    }
-  },
-
-  /**
-   * Supprime toutes les couches dynamiques.
-   */
-  clearLayers() {
-    for (const lid of [...this._layerIds]) {
-      if (this.map.getLayer(lid)) this.map.removeLayer(lid);
-    }
-    this._layerIds.clear();
-    // Supprimer les sources src-*
-    const style = this.map.getStyle();
-    if (style?.sources) {
-      for (const sid of Object.keys(style.sources)) {
-        if (sid.startsWith("src-")) this.map.removeSource(sid);
       }
     }
   },

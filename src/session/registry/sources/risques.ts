@@ -186,9 +186,8 @@ export const RISQUES_CAVITES: SourceDef = {
       unit: "m",
       primary: false,
     },
-    { key: "x", label: "Longitude", type: "number", primary: false },
-    { key: "y", label: "Latitude", type: "number", primary: false },
   ],
+  geoFields: { lon: "x", lat: "y" },
   priority: "recommended",
 };
 
@@ -306,9 +305,8 @@ export const RISQUES_ICPE: SourceDef = {
       },
       primary: false,
     },
-    { key: "x", label: "Longitude", type: "number", primary: false },
-    { key: "y", label: "Latitude", type: "number", primary: false },
   ],
+  geoFields: { lon: "x", lat: "y" },
   userFilters: [
     {
       key: "regime",

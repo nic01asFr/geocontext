@@ -29,6 +29,9 @@ const GeoState = {
   // ── Couches cartographiques ──
   layers: [],
 
+  // ── Compteurs de features par action ──
+  actionCounts: {},
+
   // ── Listeners ──
   _listeners: {},
 
@@ -115,6 +118,18 @@ const GeoState = {
   // ================================================================
   // Helpers
   // ================================================================
+
+  /** Met à jour le compteur d'une action et notifie. */
+  setActionCount(action, count) {
+    this.actionCounts[action] = count;
+    this.emit("action-counts-changed", this.actionCounts);
+  },
+
+  /** Réinitialise les compteurs (nouveau territoire). */
+  resetActionCounts() {
+    this.actionCounts = {};
+    this.emit("action-counts-changed", {});
+  },
 
   /** Le tool action est-il disponible ? */
   hasAction() {

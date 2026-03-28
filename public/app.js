@@ -1,8 +1,11 @@
 /**
  * App — point d'entrée de l'interface web geocontext.
  *
- * Initialise tous les composants et orchestre les interactions.
- * Gère le flux : UI event → MCP tool call → layerSpecs → fetch GeoJSON → carte.
+ * Flux :
+ *   navigate → contour territoire + carte de contexte
+ *   action   → efface les anciennes couches thématiques → carte thématique
+ *   clic feature → popup (pas de navigate)
+ *   clic fond carte → navigate par coordonnées
  */
 
 (async function () {
@@ -33,7 +36,6 @@
     statusEl.className = "status online";
     statusEl.title = "Connecté";
     Chat.addMessage("system", "Connecté au serveur geocontext.");
-
     await GeoState.refreshAll(client);
   } catch (e) {
     statusEl.className = "status offline";
@@ -42,7 +44,6 @@
     console.error("[app] Connexion MCP échouée:", e);
   }
 
-  // Écouter les notifications tools/list_changed
   client.onToolsChanged = async () => {
     await GeoState.refreshAll(client);
   };
@@ -51,9 +52,6 @@
   // 3. Helpers
   // ================================================================
 
-  /**
-   * Extrait le texte humain d'un résultat MCP (ignore les blocs JSON layerSpecs).
-   */
   function extractText(result) {
     if (!result?.content) return "";
     return result.content
@@ -69,26 +67,23 @@
       .join("\n");
   }
 
-  /**
-   * Traite les layerSpecs d'un résultat MCP :
-   * fetch le GeoJSON directement depuis Géoplateforme et l'affiche sur la carte.
-   */
   async function processLayerSpecs(result) {
     const specs = GeoFetcher.extractLayerSpecs(result);
-    if (specs) {
-      await GeoFetcher.loadLayers(specs);
-    }
+    if (specs) await GeoFetcher.loadLayers(specs);
   }
 
   /**
-   * Gère une navigation : efface les anciennes couches, appelle navigate,
-   * rafraîchit l'état et affiche le résultat.
+   * Navigate vers un territoire :
+   *   1. Effacer toutes les couches (thématiques + boundary)
+   *   2. Appeler navigate
+   *   3. Charger le contour du nouveau territoire
    */
   async function doNavigate(target) {
     statusEl.className = "status loading";
     try {
-      // Effacer les couches de l'ancien territoire
       GeoMap.clearLayers();
+      GeoMap.clearBoundary();
+      GeoState.resetActionCounts();
       DataPanel.hide();
 
       const result = await client.callTool("navigate", { target });
@@ -96,6 +91,12 @@
       if (msg) Chat.addMessage("assistant", msg);
 
       await GeoState.refreshAll(client);
+
+      // Charger le contour du territoire
+      const ctx = GeoState.context;
+      if (ctx.level && ctx.code) {
+        GeoFetcher.loadTerritoryBoundary(ctx); // async, pas bloquant
+      }
     } catch (e) {
       Chat.addMessage("system", `Erreur : ${e.message}`);
     } finally {
@@ -123,9 +124,17 @@
   // 5. Événements émis par les composants
   // ================================================================
 
-  // Clic carte → navigate par coordonnées
+  // Clic fond carte → navigate
   GeoState.on("map-click", async ({ lon, lat }) => {
     await doNavigate(`${lon.toFixed(5)},${lat.toFixed(5)}`);
+  });
+
+  // Clic feature → le popup est géré dans map.js, on peut aussi
+  // mettre en évidence la ligne dans le data-panel si disponible
+  GeoState.on("feature-click", ({ feature, meta }) => {
+    // Highlight optionnel dans le DataPanel (si la feature a un index)
+    const idx = feature.id;
+    if (idx !== undefined) GeoState.emit("feature-hover", idx);
   });
 
   // Clic hiérarchie → navigate
@@ -133,9 +142,11 @@
     await doNavigate(code);
   });
 
-  // Clic thème/action → action + fetch GeoJSON direct
+  // Clic thème/action → effacer les couches thématiques, charger les nouvelles
   GeoState.on("action-request", async (action) => {
     statusEl.className = "status loading";
+    // Effacer les couches thématiques (pas la limite territoire)
+    GeoMap.clearLayers();
     DataPanel.showLoading(action);
     try {
       const result = await client.callTool("action", { action });
@@ -145,8 +156,21 @@
         DataPanel.render(action, text);
       }
 
-      // Fetch les couches GeoJSON directement depuis Géoplateforme
-      await processLayerSpecs(result);
+      const specs = GeoFetcher.extractLayerSpecs(result);
+      if (specs) {
+        const total = Object.values(specs).reduce((s, sp) => s + (sp.featureCount || 0), 0);
+        GeoState.setActionCount(action, total);
+
+        const layers = await GeoFetcher.loadLayers(specs);
+
+        // Afficher le détail des features dans le DataPanel
+        if (layers && layers.length > 0) {
+          const allFeatures = layers.flatMap(l => l.features || []);
+          if (allFeatures.length > 0) {
+            DataPanel.render(action, text, allFeatures);
+          }
+        }
+      }
 
       await GeoState.refreshAll(client);
     } catch (e) {
