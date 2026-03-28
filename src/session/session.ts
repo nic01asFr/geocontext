@@ -1,16 +1,34 @@
 /**
  * geocontext — GeoContextSession
  *
- * Pièce maîtresse du serveur MCP dynamique. Une instance par connexion client.
+ * Pièce maîtresse du serveur MCP. Une instance par connexion client.
  *
  * Responsabilités :
  *   - Maintenir le NavigationContext (état de session)
- *   - Générer la liste de tools dynamique selon le contexte (getTools)
+ *   - Générer la surface de tools adaptée au contexte (getTools)
  *   - Dispatcher les tool calls vers les handlers appropriés
  *   - Émettre tools/list_changed quand le contexte change
  *
+ * ## Surface de tools — stratégie "toujours exposé"
+ *
+ * Les 7 tools (navigate, search, back, action, map, compare, select) sont
+ * TOUJOURS retournés par getTools(), quelle que soit l'étape de navigation.
+ *
+ * La contextualisation se fait via les descriptions et les `enum` des params :
+ *
+ *   - Sans territoire  → action() : description "naviguez d'abord", sans enum
+ *   - Avec territoire  → action() : enum = thèmes disponibles
+ *   - Avec thème actif → action() : enum = sous-actions du thème
+ *   - Sans couches     → map()    : description "chargez des données d'abord"
+ *   - Avec couches     → map()    : enum = noms des couches actives
+ *
+ * Cette approche est plus robuste que l'ajout/suppression de tools car les
+ * clients MCP (Claude Code, Claude Desktop) ne re-fetche pas tools/list entre
+ * deux messages d'une même conversation, même après réception d'une
+ * notification tools/list_changed via SSE.
+ *
  * Cycle :
- *   tools/list → getTools() → [navigate, search, back, (action), (map), ...]
+ *   tools/list → getTools() → 7 tools (descriptions + enums contextuels)
  *   tools/call → handleToolCall() → dispatch → updateContext → notification
  *
  * @see docs/navigation-context.md — cycle de navigation
@@ -59,34 +77,28 @@ export class GeoContextSession {
   // ========================================================================
 
   /**
-   * Retourne la liste de tools MCP selon le contexte courant.
+   * Retourne les 7 tools MCP, toujours tous présents.
    *
-   * Jamais plus de 7 tools exposés au LLM.
+   * Chaque builder adapte description et enum au contexte courant :
+   *   - état vide    → messages d'orientation ("naviguez d'abord…")
+   *   - avec contexte → enums contraints aux valeurs valides
+   *
+   * Pourquoi toujours 7 et non un nombre variable ?
+   * Les clients MCP ne re-fetche pas tools/list entre deux messages,
+   * même après réception d'une notification tools/list_changed via SSE.
+   * Exposer tous les tools dès le départ garantit que le LLM les voit
+   * à chaque tour, sans dépendre du mécanisme de notification.
    */
   getTools(): Tool[] {
-    const tools: Tool[] = [
+    return [
       this.buildNavigateTool(),
       this.buildSearchTool(),
-      BACK_TOOL,
+      this.buildBackTool(),
+      this.buildActionTool(),
+      this.buildMapTool(),
+      this.buildCompareTool(),
+      this.buildSelectTool(),
     ];
-
-    if (this.ctx.level) {
-      tools.push(this.buildActionTool());
-    }
-
-    if (this.ctx.layers.length > 0) {
-      tools.push(this.buildMapTool());
-    }
-
-    if (this.ctx.theme && Object.keys(this.ctx.data).length > 0) {
-      tools.push(this.buildCompareTool());
-    }
-
-    if (this.ctx.layers.some((l) => l.featureCount && l.featureCount > 0)) {
-      tools.push(this.buildSelectTool());
-    }
-
-    return tools;
   }
 
   // ========================================================================
@@ -206,9 +218,12 @@ export class GeoContextSession {
   /**
    * action — consulter un thème ou exécuter une sous-action.
    *
-   * Polymorphe :
-   *   - Si pas de thème actif → action = nom de thème → charger le thème
-   *   - Si thème actif → action = sous-action → exécuter les sources
+   * Polymorphe avec résolution cross-thème :
+   *   1. Si action = nom de thème → changer de thème + charger sources required
+   *   2. Si action = sous-action du thème courant → exécuter
+   *   3. Si action non trouvée dans le thème courant → chercher dans tous les
+   *      thèmes et changer silencieusement (ex: action("radon") sans avoir
+   *      fait action("risques") d'abord → résolution automatique)
    */
   private async handleAction(
     args: Record<string, unknown>,
@@ -220,8 +235,9 @@ export class GeoContextSession {
       return textResult("Aucun territoire sélectionné. Utilisez navigate d'abord.");
     }
 
-    // Cas 1 : action = un thème → changer de thème
     const themes = registry.getThemes(this.ctx.level);
+
+    // Cas 1 : action = un thème → changer de thème + charger vue d'ensemble
     if (themes.includes(action as Theme)) {
       this.ctx.theme = action as Theme;
 
@@ -230,7 +246,6 @@ export class GeoContextSession {
       const requiredSources = allSources.filter(
         (s) => s.priority === "required" && !s.action,
       );
-      // Si pas de sources sans action, prendre toutes les required
       const sourcesToLoad = requiredSources.length > 0
         ? requiredSources
         : allSources.filter((s) => s.priority === "required");
@@ -240,47 +255,64 @@ export class GeoContextSession {
         results = await executeSources(sourcesToLoad, this.ctx, userFilters);
       }
 
-      // Stocker les résultats
       this.ctx.data[action] = results;
 
-      // Ajouter les couches géographiques
+      // Ajouter les couches géographiques (sources d'overview avec géométrie)
       for (const r of results) {
-        if (r.geojson && r.success) {
+        if (r.layerSpec && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
           this.ctx.layers.push({
             name: r.sourceId,
             visible: true,
             featureCount: r.features.length,
+            style: r.layerSpec.style,
           });
         }
       }
 
-      // Lister les actions disponibles
+      // Lister les actions avec leurs IDs (utiles pour le prochain appel)
       const actionDefs = registry.getActionDefs(this.ctx.level, action as Theme);
-      const actionLabels = actionDefs.map((a) => a.label);
 
+      const breadcrumb = formatBreadcrumb(this.ctx);
       return textResult(
+        breadcrumb +
         formatSourceResults(results, this.ctx) +
-        (actionLabels.length > 0
-          ? `\nActions disponibles : ${actionLabels.join(", ")}.`
+        (actionDefs.length > 0
+          ? `\nActions disponibles : ${actionDefs.map((a) => `${a.id} (${a.label})`).join(", ")}.`
           : ""),
       );
     }
 
-    // Cas 2 : action = sous-action dans le thème courant
-    if (!this.ctx.theme) {
-      return textResult(
-        `Thème non actif. "${action}" n'est pas un thème reconnu. ` +
-        `Thèmes disponibles : ${themes.map((t) => THEME_META[t].label).join(", ")}.`,
-      );
+    // Cas 2 : action = sous-action
+    // Chercher d'abord dans le thème courant, puis dans tous les thèmes (cross-thème)
+    let targetTheme = this.ctx.theme;
+    let sources = targetTheme
+      ? registry.getSources(this.ctx.level, targetTheme, action)
+      : [];
+
+    if (sources.length === 0) {
+      // Résolution cross-thème : chercher dans tous les thèmes disponibles
+      for (const t of themes) {
+        if (t === targetTheme) continue;
+        const s = registry.getSources(this.ctx.level, t, action);
+        if (s.length > 0) {
+          targetTheme = t;
+          sources = s;
+          break;
+        }
+      }
     }
 
-    const sources = registry.getSources(this.ctx.level, this.ctx.theme, action);
-    if (sources.length === 0) {
-      const validActions = registry.getActions(this.ctx.level, this.ctx.theme);
-      return textResult(
-        `Action inconnue : "${action}". ` +
-        `Actions disponibles : ${validActions.join(", ")}.`,
-      );
+    // Aucune action trouvée nulle part
+    if (sources.length === 0 || !targetTheme) {
+      const hint = this.ctx.theme
+        ? `Actions dans ${THEME_META[this.ctx.theme].label} : ${registry.getActions(this.ctx.level, this.ctx.theme).join(", ")}. Thèmes disponibles : ${themes.join(", ")}.`
+        : `Thèmes disponibles : ${themes.join(", ")}.`;
+      return textResult(`Action inconnue : "${action}". ${hint}`);
+    }
+
+    // Changer de thème si résolution cross-thème
+    if (targetTheme !== this.ctx.theme) {
+      this.ctx.theme = targetTheme;
     }
 
     const results = await executeSources(sources, this.ctx, userFilters);
@@ -300,7 +332,8 @@ export class GeoContextSession {
       }
     }
 
-    return richResult(formatSourceResults(results, this.ctx), layerSpecs);
+    const breadcrumb = formatBreadcrumb(this.ctx);
+    return richResult(breadcrumb + formatSourceResults(results, this.ctx), layerSpecs);
   }
 
   /**
@@ -546,6 +579,32 @@ export class GeoContextSession {
   // ========================================================================
 
   /**
+   * Tool back — dynamique : affiche la destination dans la description.
+   */
+  private buildBackTool(): Tool {
+    const prev = this.ctx.history.length > 0
+      ? this.ctx.history[this.ctx.history.length - 1]
+      : null;
+
+    let description: string;
+    if (!prev) {
+      description = "Remonter dans la navigation (historique vide).";
+    } else if (prev.name) {
+      const themePart = prev.theme ? ` · ${THEME_META[prev.theme].label}` : "";
+      description = `Retour à ${prev.name}${themePart}.`;
+    } else {
+      description = "Retour au contexte initial.";
+    }
+
+    return {
+      name: "back",
+      description,
+      inputSchema: { type: "object" as const, properties: {} },
+      annotations: { title: "Retour", readOnlyHint: false, idempotentHint: false },
+    };
+  }
+
+  /**
    * Tool navigate — description contextuelle.
    */
   private buildNavigateTool(): Tool {
@@ -588,13 +647,32 @@ export class GeoContextSession {
         },
         required: ["target"],
       },
+      annotations: { title: "Naviguer", openWorldHint: true },
     };
   }
 
   /**
-   * Tool action — polymorphe selon le contexte.
+   * Tool action — polymorphe selon le contexte, toujours exposé.
+   *
+   * Sans territoire : description invite à naviguer d'abord.
+   * Avec territoire : enum = thèmes disponibles.
+   * Avec thème actif : enum = actions du thème.
    */
   private buildActionTool(): Tool {
+    if (!this.ctx.level) {
+      return {
+        name: "action",
+        description: "Consulter des données thématiques. ⚠ Naviguez d'abord vers un territoire avec navigate().",
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            action: { type: "string", description: "Thème ou action (naviguez d'abord)" },
+          },
+          required: ["action"],
+        },
+      };
+    }
+
     const description = buildActionDescription(this.ctx, registry);
     const enums = buildActionEnums(this.ctx, registry);
 
@@ -602,21 +680,19 @@ export class GeoContextSession {
       action: {
         type: "string",
         description: "Thème ou action à exécuter",
+        ...(enums.length > 0 ? { enum: enums } : {}),
       },
     };
 
-    if (enums.length > 0) {
-      properties.action.enum = enums;
-    }
-
-    // Ajouter le champ filter si un thème est actif et a des filtres utilisateur
+    // Ajouter filter si le thème actif expose des filtres utilisateur
     if (this.ctx.theme && this.ctx.level) {
       const sources = registry.getSources(this.ctx.level, this.ctx.theme);
-      const hasFilters = sources.some((s) => s.userFilters && s.userFilters.length > 0);
-      if (hasFilters) {
+      const filterDefs = sources.flatMap((s) => s.userFilters ?? [])
+        .filter((f, i, arr) => arr.findIndex((x) => x.key === f.key) === i);
+      if (filterDefs.length > 0) {
         properties.filter = {
           type: "object",
-          description: "Filtres optionnels à appliquer sur les résultats",
+          description: `Filtres disponibles : ${filterDefs.map((f) => `${f.key} (${f.label})`).join(", ")}`,
           additionalProperties: true,
         };
       }
@@ -625,11 +701,8 @@ export class GeoContextSession {
     return {
       name: "action",
       description,
-      inputSchema: {
-        type: "object" as const,
-        properties,
-        required: ["action"],
-      },
+      inputSchema: { type: "object" as const, properties, required: ["action"] },
+      annotations: { title: "Action thématique", openWorldHint: true },
     };
   }
 
@@ -650,20 +723,26 @@ export class GeoContextSession {
         },
         required: ["query"],
       },
+      annotations: { title: "Recherche", readOnlyHint: true, openWorldHint: true },
     };
   }
 
   /**
-   * Tool map — couches cartographiques dynamiques.
+   * Tool map — toujours exposé, enum des couches adapté au contexte.
+   *
+   * Sans couches actives : description invite à charger des données d'abord.
+   * Avec couches : enum = noms des couches disponibles.
    */
   private buildMapTool(): Tool {
     const layerNames = this.ctx.layers.map((l) => l.name);
 
+    const description = layerNames.length > 0
+      ? `Carte — couches actives : ${layerNames.join(", ")}. Opérations : show, hide, highlight, filter, thematic.`
+      : "Gérer les couches cartographiques. ⚠ Aucune couche active — exécutez une action thématique d'abord.";
+
     return {
       name: "map",
-      description:
-        `Carte — couches : ${layerNames.join(", ")}. ` +
-        `Opérations : show, hide.`,
+      description,
       inputSchema: {
         type: "object",
         properties: {
@@ -674,49 +753,73 @@ export class GeoContextSession {
           },
           layer: {
             type: "string",
-            enum: layerNames.length > 0 ? layerNames : undefined,
+            ...(layerNames.length > 0 ? { enum: layerNames } : {}),
             description: "Nom de la couche",
           },
         },
         required: ["operation", "layer"],
       },
+      annotations: { title: "Carte", readOnlyHint: false, idempotentHint: true },
     };
   }
 
   /**
-   * Tool compare — croiser deux thèmes.
+   * Tool compare — toujours exposé, enum des thèmes adapté au contexte.
+   *
+   * Sans thème actif : description invite à sélectionner un thème d'abord.
+   * Avec thème actif : enum = autres thèmes disponibles (exclut le courant).
    */
   private buildCompareTool(): Tool {
-    const themes = this.ctx.level
+    if (!this.ctx.theme) {
+      return {
+        name: "compare",
+        description: "Comparer deux thèmes sur le territoire courant. ⚠ Sélectionnez d'abord un thème avec action().",
+        inputSchema: {
+          type: "object",
+          properties: {
+            theme: { type: "string", description: "Thème à comparer" },
+          },
+          required: ["theme"],
+        },
+      };
+    }
+
+    const otherThemes = this.ctx.level
       ? registry.getThemes(this.ctx.level).filter((t) => t !== this.ctx.theme)
       : [];
 
     return {
       name: "compare",
-      description:
-        `Comparer ${this.ctx.theme ? THEME_META[this.ctx.theme].label : "le thème actif"} ` +
-        `avec un autre thème.`,
+      description: `Comparer ${THEME_META[this.ctx.theme].label} avec un autre thème sur ${this.ctx.name ?? "le territoire courant"}.`,
       inputSchema: {
         type: "object",
         properties: {
           theme: {
             type: "string",
-            enum: themes.length > 0 ? themes : undefined,
+            ...(otherThemes.length > 0 ? { enum: otherThemes } : {}),
             description: "Thème à comparer",
           },
         },
         required: ["theme"],
       },
+      annotations: { title: "Comparer", openWorldHint: true },
     };
   }
 
   /**
-   * Tool select — sélectionner une feature.
+   * Tool select — toujours exposé.
+   *
+   * Sans features chargées : description indique qu'il faut d'abord
+   * charger des données via action().
    */
   private buildSelectTool(): Tool {
+    const hasFeatures = this.ctx.layers.some((l) => l.featureCount && l.featureCount > 0);
+
     return {
       name: "select",
-      description: "Sélectionner une feature visible pour naviguer dedans.",
+      description: hasFeatures
+        ? "Sélectionner une feature visible pour naviguer dedans (parcelle, bâtiment…)."
+        : "Sélectionner une feature pour naviguer dedans. ⚠ Aucune feature disponible — chargez des données avec action() d'abord.",
       inputSchema: {
         type: "object",
         properties: {
@@ -727,6 +830,7 @@ export class GeoContextSession {
         },
         required: ["id"],
       },
+      annotations: { title: "Sélectionner", openWorldHint: true },
     };
   }
 
@@ -753,20 +857,6 @@ export class GeoContextSession {
 }
 
 // ==========================================================================
-// Constantes
-// ==========================================================================
-
-/** Tool back — toujours statique. */
-const BACK_TOOL: Tool = {
-  name: "back",
-  description: "Remonter d'un cran dans la navigation.",
-  inputSchema: {
-    type: "object",
-    properties: {},
-  },
-};
-
-// ==========================================================================
 // Formatage des résultats
 // ==========================================================================
 
@@ -783,7 +873,9 @@ function formatSourceResults(
 
   for (const r of results) {
     if (!r.success) {
-      lines.push(`⚠ ${r.sourceId} : ${r.error ?? "Erreur inconnue"}`);
+      const source = registry.findSource(r.sourceId);
+      const label = source?.label ?? r.sourceId;
+      lines.push(`⚠ ${label} : ${makeFriendlyError(r.error ?? "Erreur inconnue")}`);
       continue;
     }
 
@@ -827,11 +919,46 @@ function textResult(text: string): CallToolResult {
 }
 
 /**
+ * Génère un breadcrumb contextuel : "📍 Nom · Thème\n"
+ * Préfixe les réponses action/compare pour orienter le LLM.
+ */
+function formatBreadcrumb(ctx: NavigationContext): string {
+  const parts: string[] = [];
+  if (ctx.name) parts.push(ctx.name);
+  if (ctx.theme) parts.push(THEME_META[ctx.theme].label);
+  return parts.length > 0 ? `📍 ${parts.join(" · ")}\n` : "";
+}
+
+/**
+ * Transforme une erreur technique en message fonctionnel compréhensible.
+ * Évite d'exposer les URLs, codes HTTP et noms d'endpoint au LLM.
+ */
+function makeFriendlyError(error: string): string {
+  if (/HTTP 400/.test(error)) return "non disponible pour ce territoire (requête invalide)";
+  if (/HTTP 403/.test(error)) return "accès refusé";
+  if (/HTTP 404/.test(error)) return "source introuvable sur ce serveur";
+  if (/HTTP 50[0-9]/.test(error)) return "service temporairement indisponible";
+  if (/Timeout/.test(error)) return "délai d'attente dépassé";
+  if (/Contexte insuffisant/.test(error)) return "données contextuelles manquantes";
+  if (/Bbox|géométrie manquante/.test(error)) return "emprise géographique manquante";
+  if (/0 résultats/.test(error)) return "aucun résultat";
+  return error;
+}
+
+/**
  * Résultat riche : texte pour le LLM + layerSpecs JSON pour le frontend.
  *
  * Le frontend parse les blocs content[] et détecte le JSON layerSpecs
  * pour déclencher le fetch GeoJSON direct depuis Géoplateforme.
  */
+/**
+ * URL de l'interface web (HTTP mode seulement).
+ * Permet au LLM d'orienter l'utilisateur vers la carte.
+ */
+const WEB_UI_URL = process.env.TRANSPORT_TYPE === "http"
+  ? `http://localhost:${process.env.PORT ?? "3000"}`
+  : null;
+
 function richResult(
   text: string,
   layerSpecs: Record<string, import("./registry/types.js").LayerSpec>,
@@ -843,6 +970,14 @@ function richResult(
       type: "text",
       text: JSON.stringify({ _type: "layerSpecs", layers: layerSpecs }),
     });
+
+    // Orienter l'utilisateur vers l'interface cartographique si disponible
+    if (WEB_UI_URL) {
+      content.push({
+        type: "text",
+        text: `🗺 Visualisez ces données sur la carte : ${WEB_UI_URL}`,
+      });
+    }
   }
 
   return { content };

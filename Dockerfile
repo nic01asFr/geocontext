@@ -1,7 +1,5 @@
 FROM node:22-alpine
 
-RUN npm install -g npm
-
 WORKDIR /opt/geocontext
 
 COPY tsconfig.json package.json .

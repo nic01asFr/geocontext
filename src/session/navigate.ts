@@ -118,7 +118,7 @@ async function resolveCommune(codeInsee: string): Promise<NavigateResult> {
   }
 
   const props = feature.properties ?? {};
-  const hierarchy = buildHierarchyFromCommune(props);
+  const hierarchy = await buildHierarchyFromCommune(props);
   const name = props.nom_officiel ?? props.nom ?? codeInsee;
 
   return {
@@ -276,31 +276,33 @@ async function resolveEpci(siren: string): Promise<NavigateResult> {
 
 /**
  * Résout un texte libre via le geocodage GPF → commune.
+ *
+ * Utilise /search avec type=municipality pour retourner directement
+ * le citycode INSEE, évitant le round-trip coordinates→reverse qui
+ * peut tomber sur une commune voisine.
  */
 async function resolveTextSearch(text: string): Promise<NavigateResult> {
-  const url = `${GPF_GEOCODE}/completion/?` + new URLSearchParams({
-    text,
-    maximumResponses: "1",
+  const url = `${GPF_GEOCODE}/search?` + new URLSearchParams({
+    q: text,
+    type: "municipality",
+    limit: "1",
   }).toString();
 
   try {
     const json = await fetchJSON(url) as any;
-    const results = json.results ?? [];
-    if (results.length === 0) {
+    const features = json.features ?? [];
+    if (features.length === 0) {
       return { success: false, error: `Aucun résultat pour « ${text} »` };
     }
 
-    const first = results[0];
-    const lon = first.x;
-    const lat = first.y;
-
-    // Si le résultat a un code commune, l'utiliser directement
-    if (first.city && first.zipcode) {
-      // Utiliser les coordonnées pour trouver la commune via reverse
-      return resolveCoordinates(lon, lat);
+    const props = features[0].properties ?? {};
+    const citycode = props.citycode;
+    if (citycode && /^\d{5}$/.test(citycode)) {
+      return resolveCommune(citycode);
     }
 
-    // Sinon, tenter avec les coordonnées
+    // Fallback sur les coordonnées si pas de citycode
+    const [lon, lat] = features[0].geometry?.coordinates ?? [];
     if (typeof lon === "number" && typeof lat === "number") {
       return resolveCoordinates(lon, lat);
     }
@@ -351,15 +353,17 @@ async function fetchWfsFeature(
  * Construit la hiérarchie complète à partir des propriétés d'une commune.
  *
  * La feature ADMINEXPRESS commune contient les FK vers les niveaux parents :
- *   - siren_epci
- *   - code_insee_du_departement (ou code_dept)
- *   - code_insee_de_la_region (ou insee_reg)
+ *   - codes_siren_des_epci
+ *   - code_insee_du_departement
+ *   - code_insee_de_la_region
+ *
+ * Les noms département et région ne sont pas dans la feature commune —
+ * on fait des appels WFS séparés pour les récupérer.
  */
-function buildHierarchyFromCommune(props: Record<string, any>): Hierarchy {
+async function buildHierarchyFromCommune(props: Record<string, any>): Promise<Hierarchy> {
   const hierarchy: Hierarchy = {};
 
-  // Commune elle-même
-  // ADMINEXPRESS: code_insee, nom_officiel
+  // Commune
   const codeInsee = props.code_insee ?? props.insee_com;
   if (codeInsee) {
     hierarchy.commune = {
@@ -368,34 +372,46 @@ function buildHierarchyFromCommune(props: Record<string, any>): Hierarchy {
     };
   }
 
-  // EPCI
-  // ADMINEXPRESS commune FK: siren_epci, nom_epci (pas toujours présent)
-  const sirenEpci = props.siren_epci ?? props.code_epci;
+  // EPCI — la FK est codes_siren_des_epci (peut contenir plusieurs, on prend le premier)
+  const sirenEpciRaw = props.codes_siren_des_epci ?? props.siren_epci ?? props.code_epci;
+  const sirenEpci = typeof sirenEpciRaw === "string"
+    ? sirenEpciRaw.split("/")[0].trim()
+    : sirenEpciRaw;
   if (sirenEpci) {
+    const epciFeature = await fetchWfsFeature(
+      "ADMINEXPRESS-COG.LATEST:epci",
+      `code_siren='${sirenEpci}'`,
+    );
     hierarchy.epci = {
       code: sirenEpci,
-      name: props.nom_epci ?? sirenEpci,
+      name: epciFeature?.properties?.nom_officiel ?? sirenEpci,
       siren: sirenEpci,
     };
   }
 
   // Département
-  // ADMINEXPRESS commune FK: code_insee_du_departement
   const codeDept = props.code_insee_du_departement ?? props.code_dept ?? props.insee_dep;
   if (codeDept) {
+    const deptFeature = await fetchWfsFeature(
+      "ADMINEXPRESS-COG.LATEST:departement",
+      `code_insee='${codeDept}'`,
+    );
     hierarchy.departement = {
       code: codeDept,
-      name: props.nom_du_departement ?? props.nom_dept ?? codeDept,
+      name: deptFeature?.properties?.nom_officiel ?? codeDept,
     };
   }
 
   // Région
-  // ADMINEXPRESS commune FK: code_insee_de_la_region
   const codeRegion = props.code_insee_de_la_region ?? props.insee_reg;
   if (codeRegion) {
+    const regionFeature = await fetchWfsFeature(
+      "ADMINEXPRESS-COG.LATEST:region",
+      `code_insee='${codeRegion}'`,
+    );
     hierarchy.region = {
       code: codeRegion,
-      name: props.nom_de_la_region ?? props.nom_reg ?? codeRegion,
+      name: regionFeature?.properties?.nom_officiel ?? codeRegion,
     };
   }
 

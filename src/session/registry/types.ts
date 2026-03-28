@@ -146,6 +146,11 @@ export interface AttributePivot {
   attribute: string;
   /** D'où prendre la valeur dans le contexte */
   from: PivotFrom;
+  /**
+   * Préfixe à ajouter à la valeur extraite avant construction du filtre.
+   * Ex: "DU_" → partition = 'DU_25056' pour le GPU.
+   */
+  valuePrefix?: string;
 }
 
 /**
@@ -194,6 +199,11 @@ export interface AttributeWithFallbackPivot {
   };
   /** Clé de cache dans context.data pour mémoriser le format trouvé */
   cacheKey: string;
+  /**
+   * Préfixe à ajouter aux valeurs (primary et fallback) avant construction du filtre.
+   * Ex: "DU_" → partition = 'DU_25056' ou 'DU_200067874' pour le GPU.
+   */
+  valuePrefix?: string;
 }
 
 /**

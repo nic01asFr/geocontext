@@ -23,6 +23,8 @@ import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
   ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { dirname, join, extname } from "path";
@@ -126,6 +128,85 @@ function configureServer(server: Server): GeoContextSession {
   /**
    * resources/read — contenu d'une resource.
    */
+  // --------------------------------------------------------------------
+  // Prompts — guide contextuel pour le LLM
+  // --------------------------------------------------------------------
+
+  /**
+   * prompts/list — expose un prompt de guide d'utilisation.
+   *
+   * Le prompt "geocontext-guide" donne au LLM un aperçu complet du
+   * cycle de navigation, des outils et des ressources disponibles.
+   * Il sert de contexte système enrichi pour orienter les conversations.
+   */
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: [
+      {
+        name: "geocontext-guide",
+        description: "Guide d'utilisation du service geocontext — navigation territoriale et données thématiques",
+      },
+    ],
+  }));
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const { name } = request.params;
+
+    if (name === "geocontext-guide") {
+      const ctx = session.getContext();
+      const contextSummary = ctx.level
+        ? `Contexte actuel : ${ctx.name} (${ctx.level}, ${ctx.code})${ctx.theme ? ` · thème ${ctx.theme}` : ""}.`
+        : "Aucun territoire sélectionné.";
+
+      return {
+        description: "Guide geocontext — navigation et données territoriales France",
+        messages: [
+          {
+            role: "user" as const,
+            content: {
+              type: "text" as const,
+              text: `Tu as accès au service geocontext — assistant de navigation spatiale pour les territoires français.
+
+${contextSummary}
+
+## Cycle de navigation
+
+1. **navigate("lieu")** — résoudre un territoire (commune, département, EPCI, parcelle, coordonnées)
+2. **action("thème")** — sélectionner un thème et charger les données de synthèse
+3. **action("sous-action")** — charger une donnée spécifique (cross-thème résolu automatiquement)
+4. **compare("thème2")** — croiser deux thématiques sur le même territoire
+5. **select("id")** — naviguer vers une feature spécifique (parcelle, bâtiment)
+6. **map("opération", "couche")** — visualiser, filtrer ou thématiser une couche
+
+## Thèmes disponibles
+
+identite, urbanisme, cadastre, risques, environnement, transport, hydrologie, economie, bati
+
+## Ressources MCP (état de session)
+
+- \`geocontext://context\` — état complet : territoire, hiérarchie, thème, couches, données
+- \`geocontext://themes/{level}\` — thèmes et actions disponibles pour le niveau courant
+- \`geocontext://actions/{theme}\` — actions et filtres du thème actif
+- \`geocontext://layers\` — couches cartographiques actives
+
+## Interface cartographique
+
+Les données géographiques sont visualisables via l'interface web intégrée au service.
+Les résultats d'actions incluent des layerSpecs pour le rendu direct sur carte.
+
+## Conseils d'utilisation
+
+- Les actions cross-thème sont résolues automatiquement (ex: action("radon") sans avoir fait action("risques"))
+- Lire \`geocontext://context\` pour connaître l'état exact de la session
+- Les filtres s'ajoutent via le paramètre filter: {"key": "value"} dans action()`,
+            },
+          },
+        ],
+      };
+    }
+
+    throw new Error(`Prompt inconnu : ${name}`);
+  });
+
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
     const ctx = session.getContext();
@@ -227,6 +308,7 @@ function createMcpServer(): Server {
       capabilities: {
         tools: { listChanged: true },
         resources: { listChanged: true },
+        prompts: {},
       },
     },
   );
@@ -274,6 +356,12 @@ async function startHttp(): Promise<void> {
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
     const pathname = url.split("?")[0];
+
+    // Log requêtes /mcp entrantes
+    if (pathname === "/mcp") {
+      const sid = req.headers["mcp-session-id"] ?? "new";
+      console.error(`[mcp] ${req.method} /mcp session=${sid}`);
+    }
 
     // CORS pour /mcp
     if (pathname === "/mcp") {
@@ -339,13 +427,12 @@ async function startHttp(): Promise<void> {
       };
 
       await server.connect(transport);
+      await transport.handleRequest(req, res);
 
-      // Stocker le transport
+      // Stocker le transport après handleRequest (sessionId assigné lors de initialize)
       if (transport.sessionId) {
         transports.set(transport.sessionId, transport);
       }
-
-      await transport.handleRequest(req, res);
       return;
     }
 

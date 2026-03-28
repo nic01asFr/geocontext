@@ -109,8 +109,9 @@ export function buildAttributeCql(
   ctx: NavigationContext,
   pivot: AttributePivot,
 ): CqlFilterResult | null {
-  const value = extractPivotValue(ctx, pivot.from);
-  if (value === null) return null;
+  const raw = extractPivotValue(ctx, pivot.from);
+  if (raw === null) return null;
+  const value = pivot.valuePrefix ? `${pivot.valuePrefix}${raw}` : raw;
   return { cql: `${pivot.attribute} = '${escapeCql(value)}'` };
 }
 
@@ -138,10 +139,10 @@ export function buildSpatialCql(
   if (pivot.spatialOp === "bbox") {
     if (!ctx.bbox) return null;
     const [minLon, minLat, maxLon, maxLat] = ctx.bbox;
-    // Note : si le serveur est en EPSG:2154, l'executor reprojette la bbox
-    // avant d'appeler cette fonction. Ici on construit le CQL tel quel.
+    // Le CRS est explicité ('EPSG:4326') pour éviter que certains serveurs WFS
+    // interprètent les coordonnées dans leur CRS natif (ex: EPSG:2154).
     return {
-      cql: `BBOX(${geomCol}, ${minLon}, ${minLat}, ${maxLon}, ${maxLat})`,
+      cql: `BBOX(${geomCol}, ${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 'EPSG:4326')`,
     };
   }
 
@@ -182,13 +183,15 @@ export function buildFallbackCql(
   }
 
   // Construire la valeur primaire
-  const primaryValue = extractPivotValue(ctx, pivot.primary.from);
-  if (primaryValue === null) return null;
+  const primaryRaw = extractPivotValue(ctx, pivot.primary.from);
+  if (primaryRaw === null) return null;
+  const primaryValue = pivot.valuePrefix ? `${pivot.valuePrefix}${primaryRaw}` : primaryRaw;
 
   // Construire la valeur fallback (concaténation de plusieurs sources)
   const fallbackParts = pivot.fallback.from.map((f) => extractPivotValue(ctx, f));
   if (fallbackParts.some((p) => p === null)) return null;
-  const fallbackValue = fallbackParts.join(pivot.fallback.separator);
+  const fallbackRaw = fallbackParts.join(pivot.fallback.separator);
+  const fallbackValue = pivot.valuePrefix ? `${pivot.valuePrefix}${fallbackRaw}` : fallbackRaw;
 
   return {
     primary: {

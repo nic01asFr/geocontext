@@ -144,14 +144,20 @@ async function executeWfsSource(
       const result = buildFallbackCql(ctx, source.pivot);
       if (!result) return emptyResult(source.id, "Contexte insuffisant pour le filtre partition");
 
-      // Essai primaire
-      const primaryResult = await fetchWfs(endpoint, source, result.primary.cql);
-      if (primaryResult.features.length > 0) {
-        resolvedPartition = result.primary.resolvedPartition;
-        return finalizeWfsResult(source, endpoint, result.primary.cql, primaryResult, resolvedPartition);
+      // Essai primaire — absorbe les erreurs HTTP (ex: 400 partition inconnue)
+      // pour permettre le fallback vers le format siren_code_insee
+      try {
+        const primaryResult = await fetchWfs(endpoint, source, result.primary.cql);
+        if (primaryResult.features.length > 0) {
+          resolvedPartition = result.primary.resolvedPartition;
+          if (resolvedPartition) ctx.data[(source.pivot as any).cacheKey] = resolvedPartition;
+          return finalizeWfsResult(source, endpoint, result.primary.cql, primaryResult, resolvedPartition);
+        }
+      } catch {
+        // Primary a échoué (HTTP 400/404) → fallback automatique
       }
 
-      // Fallback
+      // Fallback (ex: partition = "200067874_25056" pour un PLUi)
       cqlFilter = result.fallback.cql;
       resolvedPartition = result.fallback.resolvedPartition;
       break;
@@ -174,7 +180,13 @@ async function executeWfsSource(
 
   // 3. Exécuter la requête WFS
   const rawResult = await fetchWfs(endpoint, source, cqlFilter!);
-  return finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
+  const finalResult = finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
+  // Mettre en cache le format partition résolu pour accélérer les requêtes suivantes
+  if (finalResult.resolvedPartition) {
+    const cacheKey = (source.pivot as any).cacheKey as string | undefined;
+    if (cacheKey) ctx.data[cacheKey] = finalResult.resolvedPartition;
+  }
+  return finalResult;
 }
 
 /**
@@ -386,7 +398,7 @@ async function executeRestSource(
     sourceId: source.id,
     success: true,
     features: transformed,
-    totalCount: json.total ?? json.header?.total ?? rawFeatures.length,
+    totalCount: json.total ?? json.count ?? json.header?.total ?? rawFeatures.length,
     truncated: rawFeatures.length >= endpoint.maxFeatures,
   };
 }
@@ -427,7 +439,7 @@ async function fetchWithRetry(
       }
 
       throw new Error(
-        `HTTP ${response.status} ${response.statusText} — ${endpoint.id} — ${url.substring(0, 200)}`,
+        `HTTP ${response.status} ${response.statusText} — ${endpoint.id}`,
       );
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));

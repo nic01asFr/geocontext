@@ -5,12 +5,12 @@
  * Documents d'urbanisme (PLU, PLUi, POS, CC, PSMV) et leurs composantes :
  * zonages, prescriptions, servitudes d'utilité publique.
  *
- * ⚠ Subtilité partition :
- *   - PLU communal  → partition = code_insee (ex: "25349")
- *   - PLUi intercommunal → partition = siren_code_insee (ex: "200067874_25349")
- *   On ne sait pas lequel sans essayer → stratégie attribute_with_fallback.
- *   Le format trouvé est mis en cache (clé "_partition_urba") pour les
- *   requêtes suivantes sur la même commune.
+ * ⚠ Subtilité partition GPU :
+ *   - wfs_du:document    → filtre par grid_name = code_insee (pas de préfixe)
+ *   - zone_urba + prescriptions → filtre par partition = 'DU_{code_insee}'
+ *     PLUi intercommunal : partition = 'DU_{siren_epci}' (fallback)
+ *   - wfs_sup (SUP) → partition très complexe ({prefix}_SUP_{insee}_{type})
+ *     → filtre spatial BBOX à la place
  *
  * Typenames WFS :
  *   wfs_du:document          — documents d'urbanisme en vigueur
@@ -18,6 +18,9 @@
  *   wfs_du:prescription_surf — prescriptions surfaciques
  *   wfs_du:prescription_lin  — prescriptions linéaires
  *   wfs_du:prescription_pct  — prescriptions ponctuelles
+ *   wfs_sup:assiette_sup_s   — servitudes d'utilité publique surfaciques
+ *   wfs_sup:assiette_sup_l   — servitudes linéaires
+ *   wfs_sup:assiette_sup_p   — servitudes ponctuelles
  *
  * @see docs/terrid-spec.md — contrainte partition variable
  */
@@ -25,23 +28,42 @@
 import type { SourceDef, UserFilterDef } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// Pivot commun — partition avec fallback PLU/PLUi
+// Pivots GPU
 // ---------------------------------------------------------------------------
 
 /**
- * Stratégie de pivot partagée par toutes les couches urbanisme.
- * Essai 1 : partition = code_insee (PLU communal)
- * Essai 2 : partition = siren_epci + "_" + code_insee (PLUi intercommunal)
+ * Pivot pour wfs_du:document — filtre par grid_name (code_insee direct, sans préfixe).
  */
-const PARTITION_PIVOT = {
+const DOCUMENT_PIVOT = {
+  strategy: "attribute" as const,
+  attribute: "grid_name",
+  from: "context.code" as const,
+};
+
+/**
+ * Pivot pour zone_urba, prescriptions — partition = 'DU_{code_insee}'.
+ * Fallback PLUi : partition = 'DU_{siren_epci}'.
+ * Le préfixe "DU_" est appliqué automatiquement via valuePrefix.
+ */
+const GPU_PARTITION_PIVOT = {
   strategy: "attribute_with_fallback" as const,
   attribute: "partition",
   primary: { from: "context.code" as const },
   fallback: {
-    from: ["hierarchy.epci.siren" as const, "context.code" as const],
-    separator: "_",
+    from: ["hierarchy.epci.siren" as const],
+    separator: "",
   },
-  cacheKey: "_partition_urba",
+  cacheKey: "_partition_gpu",
+  valuePrefix: "DU_",
+};
+
+/**
+ * Pivot SUP — filtre spatial BBOX (partition trop complexe pour être construit).
+ */
+const SUP_SPATIAL_PIVOT = {
+  strategy: "spatial" as const,
+  spatialOp: "bbox" as const,
+  from: "context.bbox" as const,
 };
 
 // ==========================================================================
@@ -52,9 +74,9 @@ const PARTITION_PIVOT = {
  * Document d'urbanisme en vigueur sur la commune.
  *
  * Retourne le type de document (PLU, PLUi, POS, CC, PSMV),
- * sa date d'approbation, et son état (en vigueur, annulé...).
+ * son statut GPU et sa date de mise à jour.
  *
- * Le document est unique par commune (sauf cas rares de transition).
+ * Le document est unique par commune (sauf cas rares de transition PLU→PLUi).
  */
 export const URBANISME_DOCUMENT: SourceDef = {
   id: "urba_document",
@@ -65,11 +87,11 @@ export const URBANISME_DOCUMENT: SourceDef = {
   levels: ["commune"],
   theme: "urbanisme",
   action: "document",
-  pivot: PARTITION_PIVOT,
+  pivot: DOCUMENT_PIVOT,
   fields: [
-    { key: "idurba", label: "Identifiant", type: "string", primary: false },
+    { key: "id", label: "Identifiant GPU", type: "string", primary: false },
     {
-      key: "typedoc",
+      key: "du_type",
       label: "Type de document",
       type: "enum",
       enumValues: {
@@ -83,37 +105,25 @@ export const URBANISME_DOCUMENT: SourceDef = {
       primary: true,
     },
     {
-      key: "etat",
-      label: "État",
+      key: "gpu_status",
+      label: "Statut",
       type: "enum",
       enumValues: {
-        "01": "En cours de procédure",
-        "02": "Arrêté",
-        "03": "Opposable",
-        "04": "Annulé",
-        "05": "Remplacé",
-        "06": "Abrogé",
-        "07": "Approuvé",
-        "08": "Partiellement annulé",
-        "09": "Caduc",
+        production: "En vigueur",
+        archivé: "Archivé",
       },
       primary: true,
     },
     {
-      key: "datappro",
-      label: "Date d'approbation",
+      key: "gpu_timestamp",
+      label: "Dernière mise à jour",
       type: "date",
       transforms: ["parse_date_iso", "format_date_fr"],
       primary: true,
     },
-    { key: "datefin", label: "Date de fin", type: "date", transforms: ["parse_date_iso"], primary: false },
-    { key: "nomplan", label: "Nom du plan", type: "string", primary: false },
-    { key: "urlplan", label: "URL du plan", type: "string", primary: false },
-    { key: "urlpe", label: "URL pièces écrites", type: "string", primary: false },
+    { key: "name", label: "Référence", type: "string", primary: false },
+    { key: "partition", label: "Partition GPU", type: "string", primary: false },
   ],
-  constraints: {
-    partitionFallback: true,
-  },
   priority: "required",
 };
 
@@ -137,22 +147,13 @@ const ZONAGE_FILTERS: UserFilterDef[] = [
     },
     toCql: "typezone = '{value}'",
   },
-  {
-    key: "surface_min",
-    label: "Surface minimale",
-    type: "number_min",
-    toCql: "superficie",
-  },
 ];
 
 /**
  * Zonages PLU de la commune.
  *
  * Zones U (Urbaines), AU (À Urbaniser), A (Agricoles), N (Naturelles).
- * Chaque zone porte un libellé, une destination dominante, et une surface.
- *
- * Au niveau parcelle, le pivot est spatial (INTERSECTS sur la géométrie
- * de la parcelle) pour trouver dans quelle zone elle se situe.
+ * Chaque zone porte un libellé et une destination dominante.
  */
 export const URBANISME_ZONAGES: SourceDef = {
   id: "urba_zonages",
@@ -163,7 +164,7 @@ export const URBANISME_ZONAGES: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "zonages",
-  pivot: PARTITION_PIVOT,
+  pivot: GPU_PARTITION_PIVOT,
   fields: [
     {
       key: "typezone",
@@ -201,29 +202,19 @@ export const URBANISME_ZONAGES: SourceDef = {
       },
       primary: false,
     },
-    {
-      key: "superficie",
-      label: "Superficie",
-      type: "number",
-      unit: "ha",
-      transforms: ["m2_to_ha"],
-      primary: true,
-    },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
   userFilters: ZONAGE_FILTERS,
   constraints: {
-    partitionFallback: true,
     paginable: true,
   },
   priority: "required",
 };
 
 /**
- * Zonages PLU pour le niveau parcelle — pivot spatial.
+ * Zonages PLU pour le niveau parcelle — pivot spatial INTERSECTS.
  *
  * Trouve la ou les zones PLU qui intersectent la parcelle.
- * Utilise la géométrie de la parcelle (INTERSECTS), pas la partition.
  */
 export const PARCELLE_ZONAGE: SourceDef = {
   id: "urba_zonage_parcelle",
@@ -266,7 +257,7 @@ export const URBANISME_PRESCRIPTIONS_SURF: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "prescriptions",
-  pivot: PARTITION_PIVOT,
+  pivot: GPU_PARTITION_PIVOT,
   fields: [
     { key: "libelle", label: "Libellé", type: "string", primary: true },
     { key: "txt", label: "Texte", type: "string", primary: false },
@@ -292,7 +283,6 @@ export const URBANISME_PRESCRIPTIONS_SURF: SourceDef = {
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
-    partitionFallback: true,
     paginable: true,
   },
   priority: "recommended",
@@ -310,16 +300,13 @@ export const URBANISME_PRESCRIPTIONS_LIN: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "prescriptions",
-  pivot: PARTITION_PIVOT,
+  pivot: GPU_PARTITION_PIVOT,
   fields: [
     { key: "libelle", label: "Libellé", type: "string", primary: true },
     { key: "txt", label: "Texte", type: "string", primary: false },
     { key: "typepsc", label: "Type", type: "string", primary: true },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
-  constraints: {
-    partitionFallback: true,
-  },
   priority: "recommended",
 };
 
@@ -335,16 +322,13 @@ export const URBANISME_PRESCRIPTIONS_PCT: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "prescriptions",
-  pivot: PARTITION_PIVOT,
+  pivot: GPU_PARTITION_PIVOT,
   fields: [
     { key: "libelle", label: "Libellé", type: "string", primary: true },
     { key: "txt", label: "Texte", type: "string", primary: false },
     { key: "typepsc", label: "Type", type: "string", primary: true },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
-  constraints: {
-    partitionFallback: true,
-  },
   priority: "optional",
 };
 
@@ -358,7 +342,9 @@ export const URBANISME_PRESCRIPTIONS_PCT: SourceDef = {
  * Servitudes liées aux monuments historiques, canalisations de gaz/eau,
  * lignes électriques, cimetières, aérodromes, etc.
  *
- * Typename : ASSIETTESUP (via GPU), même logique de partition que urbanisme.
+ * ⚠ Filtre spatial BBOX — la partition SUP suit un format trop complexe
+ * ({code_dept_prefix}_SUP_{code_insee}_{sup_type}) pour être construit
+ * automatiquement. Le filtre spatial est plus robuste.
  */
 export const URBANISME_SERVITUDES_SURF: SourceDef = {
   id: "urba_sup_surf",
@@ -369,51 +355,20 @@ export const URBANISME_SERVITUDES_SURF: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "servitudes",
-  pivot: PARTITION_PIVOT,
+  pivot: SUP_SPATIAL_PIVOT,
   fields: [
-    { key: "libelle", label: "Libellé", type: "string", primary: true },
+    { key: "nomass", label: "Nom", type: "string", primary: true },
+    { key: "typeass", label: "Type", type: "string", primary: true },
     {
-      key: "categorie",
-      label: "Catégorie",
-      type: "enum",
-      enumValues: {
-        AC1: "Monuments historiques",
-        AC2: "Sites inscrits/classés",
-        AC4: "Zone de protection du patrimoine",
-        AR: "Aérodromes",
-        AS1: "Conservation des eaux",
-        EL: "Lignes électriques",
-        GZ: "Canalisations de gaz",
-        I3: "Canalisation de transport de matières dangereuses",
-        I4: "Lignes de télécommunications",
-        PM1: "Plans de prévention des risques naturels",
-        PM3: "Plans de prévention des risques technologiques",
-        PT: "Télécommunications",
-        T1: "Voies ferrées",
-        T7: "Routes",
-      },
-      primary: true,
+      key: "suptype",
+      label: "Code servitude",
+      type: "string",
+      primary: false,
     },
-    { key: "generateur", label: "Générateur", type: "string", primary: false },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
-  userFilters: [
-    {
-      key: "categorie",
-      label: "Catégorie de servitude",
-      type: "enum",
-      values: {
-        AC1: "Monuments historiques",
-        AC2: "Sites inscrits/classés",
-        EL: "Lignes électriques",
-        PM1: "PPR naturels",
-        PM3: "PPR technologiques",
-      },
-      toCql: "categorie = '{value}'",
-    },
-  ],
   constraints: {
-    partitionFallback: true,
+    spatialOnly: true,
     paginable: true,
   },
   priority: "recommended",
@@ -431,13 +386,14 @@ export const URBANISME_SERVITUDES_LIN: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "servitudes",
-  pivot: PARTITION_PIVOT,
+  pivot: SUP_SPATIAL_PIVOT,
   fields: [
-    { key: "libelle", label: "Libellé", type: "string", primary: true },
-    { key: "categorie", label: "Catégorie", type: "string", primary: true },
+    { key: "nomass", label: "Nom", type: "string", primary: true },
+    { key: "typeass", label: "Type", type: "string", primary: true },
+    { key: "suptype", label: "Code servitude", type: "string", primary: false },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
-  constraints: { partitionFallback: true },
+  constraints: { spatialOnly: true },
   priority: "optional",
 };
 
@@ -453,13 +409,14 @@ export const URBANISME_SERVITUDES_PCT: SourceDef = {
   levels: ["commune", "parcelle"],
   theme: "urbanisme",
   action: "servitudes",
-  pivot: PARTITION_PIVOT,
+  pivot: SUP_SPATIAL_PIVOT,
   fields: [
-    { key: "libelle", label: "Libellé", type: "string", primary: true },
-    { key: "categorie", label: "Catégorie", type: "string", primary: true },
+    { key: "nomass", label: "Nom", type: "string", primary: true },
+    { key: "typeass", label: "Type", type: "string", primary: true },
+    { key: "suptype", label: "Code servitude", type: "string", primary: false },
     { key: "the_geom", label: "Géométrie", type: "geometry" },
   ],
-  constraints: { partitionFallback: true },
+  constraints: { spatialOnly: true },
   priority: "optional",
 };
 
