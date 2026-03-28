@@ -154,7 +154,11 @@ const GeoMap = {
    * @param {Object} [meta] - { label, primaryFields, theme }
    */
   addGeoJsonLayer(id, geojson, style = {}, meta = {}) {
-    if (!this.map || !this.map.isStyleLoaded()) return;
+    if (!this.map) return;
+    if (!this.map.isStyleLoaded()) {
+      this.map.once("load", () => this.addGeoJsonLayer(id, geojson, style, meta));
+      return;
+    }
     this.removeLayer(id);
 
     const sourceId = `src-${id}`;
@@ -236,7 +240,11 @@ const GeoMap = {
    * Remplace l'ancienne couche territoire si elle existe.
    */
   addTerritoryBoundary(geojson) {
-    if (!this.map || !this.map.isStyleLoaded()) return;
+    if (!this.map) return;
+    if (!this.map.isStyleLoaded()) {
+      this.map.once("load", () => this.addTerritoryBoundary(geojson));
+      return;
+    }
     this.clearBoundary();
 
     const sourceId = `src-${BOUNDARY_ID}`;

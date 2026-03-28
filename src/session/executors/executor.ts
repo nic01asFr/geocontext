@@ -395,21 +395,22 @@ async function executeRestSource(
   }
 
   // Construire un layerSpec inline si la source a des champs de coordonnées
+  // On utilise rawFeatures (avant transformation) pour accéder aux coordonnées
+  // même si elles ne sont pas déclarées dans source.fields
   let layerSpec: LayerSpec | undefined;
-  if (source.geoFields && transformed.length > 0) {
+  if (source.geoFields && rawFeatures.length > 0) {
     const { lon, lat } = source.geoFields;
-    const geoFeatures = transformed
-      .filter((f) => f[lon] != null && f[lat] != null)
-      .map((f, i) => ({
+    const geoFeatures = rawFeatures
+      .map((raw, i) => ({ raw, props: transformed[i] ?? {} }))
+      .filter(({ raw }) => raw[lon] != null && raw[lat] != null)
+      .map(({ raw, props }, i) => ({
         type: "Feature" as const,
         id: i,
         geometry: {
           type: "Point" as const,
-          coordinates: [Number(f[lon]), Number(f[lat])],
+          coordinates: [Number(raw[lon]), Number(raw[lat])],
         },
-        properties: Object.fromEntries(
-          Object.entries(f).filter(([k]) => k !== lon && k !== lat),
-        ),
+        properties: props,
       }));
 
     if (geoFeatures.length > 0) {

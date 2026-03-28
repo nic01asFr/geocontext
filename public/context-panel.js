@@ -5,6 +5,12 @@
  * Les clics émettent des actions MCP (navigate, action).
  */
 
+const THEME_ICONS = {
+  "info": "ℹ️", "building": "🏛️", "map-pin": "📍", "alert-triangle": "⚠️",
+  "leaf": "🌿", "truck": "🚛", "droplets": "💧", "briefcase": "💼",
+  "home": "🏠", "zap": "⚡", "layers": "🗂️", "bar-chart": "📊",
+};
+
 const ContextPanel = {
   init() {
     GeoState.on("context-changed", (ctx) => this.renderHierarchy(ctx));
@@ -84,9 +90,10 @@ const ContextPanel = {
     el.innerHTML = themes
       .map((t) => {
         const isActive = ctx.theme === t.id;
+        const icon = THEME_ICONS[t.icon] || t.icon || "📊";
         return `
           <button class="theme-btn${isActive ? " active" : ""}" data-theme="${t.id}">
-            <span class="icon">${t.icon || "📊"}</span>
+            <span class="icon">${icon}</span>
             <span class="label">${t.label}</span>
           </button>
         `;
