@@ -80,7 +80,17 @@ const Chat = {
       return this._callTool("navigate", { target: text });
     }
 
-    // Code INSEE ou texte → navigate
+    // Question ou phrase longue → mode direct n'a pas de LLM
+    const isQuestion = text.includes("?") || /^(combien|comment|pourquoi|qu[ée]|quel|quels|quelle|quelles|est-ce|y a-t-il|where|what|how|why)\b/i.test(text);
+    if (isQuestion || text.split(" ").length > 4) {
+      return this.addMessage("system",
+        "Le chat est en mode direct (commandes MCP uniquement).\n" +
+        "Utilisez /navigate <lieu>, /action <thème>, /back, /search <terme>.\n" +
+        "Exemple : /navigate Besançon → puis cliquez un thème."
+      );
+    }
+
+    // Code INSEE ou texte court → navigate
     return this._callTool("navigate", { target: text });
   },
 
@@ -139,7 +149,11 @@ const Chat = {
       } catch {}
       return true;
     });
-    const text = textParts.map((c) => c.text).join("\n");
+    // Supprimer le lien carte (redondant dans l'UI web, les couches chargent automatiquement)
+    const text = textParts.map((c) => c.text)
+      .join("\n")
+      .replace(/\n?🗺.*?http:\/\/localhost:\d+\s*/g, "")
+      .trim();
 
     if (text) {
       this.addMessage("assistant", text);
