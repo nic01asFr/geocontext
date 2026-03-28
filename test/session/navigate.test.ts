@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect } from "@jest/globals";
-import { resolveTerritory } from "../../src/session/navigate";
+import { resolveTerritory, type NavigateError } from "../../src/session/navigate";
 import { createEmptyContext } from "../../src/session/types";
 import type { NavigationContext } from "../../src/session/types";
 
@@ -125,8 +125,7 @@ describe("resolveTerritory — intégration réseau", () => {
   test("cible vide → erreur", async () => {
     const result = await resolveTerritory("", emptyCtx);
     expect(result.success).toBe(false);
-    if (result.success) return;
-    expect(result.error).toBeTruthy();
+    expect((result as NavigateError).error).toBeTruthy();
   });
 
   test("code INSEE inexistant → erreur", async () => {

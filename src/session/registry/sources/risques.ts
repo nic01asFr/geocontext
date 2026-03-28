@@ -87,7 +87,7 @@ export const RISQUES_CATNAT: SourceDef = {
   label: "Catastrophes naturelles",
   description: "Historique des arrêtés de catastrophe naturelle",
   endpoint: "georisques_rest",
-  path: "/catnat",
+  path: "/gaspar/catnat",
   levels: ["commune"],
   theme: "risques",
   action: "catnat",
@@ -104,28 +104,28 @@ export const RISQUES_CATNAT: SourceDef = {
       primary: true,
     },
     {
-      key: "dat_deb",
+      key: "date_debut_evt",
       label: "Date début",
       type: "date",
       transforms: ["parse_date_iso", "format_date_fr"],
       primary: true,
     },
     {
-      key: "dat_fin",
+      key: "date_fin_evt",
       label: "Date fin",
       type: "date",
       transforms: ["parse_date_iso", "format_date_fr"],
       primary: true,
     },
     {
-      key: "dat_pub_jo",
+      key: "date_publication_jo",
       label: "Publication JO",
       type: "date",
       transforms: ["parse_date_iso", "format_date_fr"],
       primary: false,
     },
     {
-      key: "dat_pub_arrete",
+      key: "date_publication_arrete",
       label: "Publication arrêté",
       type: "date",
       transforms: ["parse_date_iso"],
@@ -134,9 +134,9 @@ export const RISQUES_CATNAT: SourceDef = {
   ],
   userFilters: CATNAT_FILTERS,
   constraints: {
-    dateField: "dat_deb",
+    dateField: "date_debut_evt",
   },
-  defaultSort: { field: "dat_deb", order: "desc" },
+  defaultSort: { field: "date_debut_evt", order: "desc" },
   priority: "recommended",
 };
 
@@ -248,14 +248,14 @@ export const RISQUES_ARGILES: SourceDef = {
  * Usines, entrepôts, stations-service, élevages... soumis à
  * déclaration, enregistrement ou autorisation.
  *
- * Route : GET /icpe?code_insee=XXXXX
+ * Route : GET /installations_classees?code_insee=XXXXX
  */
 export const RISQUES_ICPE: SourceDef = {
   id: "georisques_icpe",
   label: "Installations classées (ICPE)",
   description: "Installations classées pour la protection de l'environnement",
   endpoint: "georisques_rest",
-  path: "/icpe",
+  path: "/installations_classees",
   levels: ["commune"],
   theme: "risques",
   action: "icpe",
@@ -265,8 +265,9 @@ export const RISQUES_ICPE: SourceDef = {
     from: "context.code",
   },
   fields: [
-    { key: "nom_ets", label: "Nom", type: "string", primary: true },
-    { key: "adresse", label: "Adresse", type: "string", primary: false },
+    { key: "raisonSociale", label: "Nom", type: "string", primary: true },
+    { key: "adresse1", label: "Adresse", type: "string", primary: false },
+    { key: "codePostal", label: "Code postal", type: "string", primary: false },
     {
       key: "regime",
       label: "Régime",
@@ -376,48 +377,49 @@ export const RISQUES_GASPAR: SourceDef = {
 // ==========================================================================
 
 /**
- * Périmètres PPR (Plans de Prévention des Risques).
- *
- * ⚠ Filtre spatial uniquement (bbox du territoire).
- * ⚠ CRS natif EPSG:2154 — l'executor reprojette automatiquement.
+ * Plans de Prévention des Risques (PPR) — via GéoRisques REST.
  *
  * Inclut : PPRI (inondation), PPRT (technologique), PPRN (naturel).
+ *
+ * Route : GET /ppr?code_insee=XXXXX
  */
 export const RISQUES_PPR: SourceDef = {
   id: "georisques_ppr",
   label: "Plans de prévention des risques",
-  description: "Périmètres des Plans de Prévention des Risques (PPR)",
-  endpoint: "georisques_wfs",
-  typename: "ms:PPRN_ZONAGE_RISQUE",
+  description: "Plans de Prévention des Risques prescrits ou approuvés (PPR)",
+  endpoint: "georisques_rest",
+  path: "/ppr",
   levels: ["commune", "parcelle"],
   theme: "risques",
   action: "ppr",
   pivot: {
-    strategy: "spatial",
-    spatialOp: "bbox",
-    from: "context.bbox",
+    strategy: "attribute",
+    attribute: "code_insee",
+    from: "hierarchy.commune.code",
   },
   fields: [
-    { key: "nom", label: "Nom du PPR", type: "string", primary: true },
-    { key: "codealea", label: "Code aléa", type: "string", primary: true },
+    { key: "nom_ppr", label: "Nom du PPR", type: "string", primary: true },
+    { key: "type_ppr", label: "Type", type: "string", primary: true },
     {
-      key: "typereg",
-      label: "Type de réglementation",
+      key: "etat",
+      label: "État",
       type: "enum",
       enumValues: {
-        "01": "Interdiction stricte",
-        "02": "Interdiction avec exceptions",
-        "03": "Prescriptions",
-        "04": "Recommandations",
-        "05": "Zone non réglementée",
+        applique: "Appliqué",
+        prescrit: "Prescrit",
+        approuve: "Approuvé",
+        annule: "Annulé",
       },
       primary: true,
     },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    {
+      key: "date_approbation",
+      label: "Date d'approbation",
+      type: "date",
+      transforms: ["parse_date_iso", "format_date_fr"],
+      primary: false,
+    },
   ],
-  constraints: {
-    spatialOnly: true,
-  },
   priority: "recommended",
 };
 

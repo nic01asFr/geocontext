@@ -34,9 +34,9 @@ describe("GeoContextSession", () => {
   // ------------------------------------------------------------------
 
   describe("getTools — contexte vide", () => {
-    test("retourne 3 tools de base", () => {
+    test("retourne 7 tools de base", () => {
       const tools = session.getTools();
-      expect(tools.length).toBe(3);
+      expect(tools.length).toBe(7);
       const names = tools.map((t) => t.name);
       expect(names).toContain("navigate");
       expect(names).toContain("search");
@@ -56,7 +56,7 @@ describe("GeoContextSession", () => {
   // ------------------------------------------------------------------
 
   describe("navigate vers commune", () => {
-    test("navigate('25349') → commune Loray + 4 tools", async () => {
+    test("navigate('25349') → commune Loray + 7 tools", async () => {
       const result = await session.handleToolCall("navigate", { target: "25349" });
 
       // Résultat textuel
@@ -73,9 +73,9 @@ describe("GeoContextSession", () => {
       expect(ctx.name).toMatch(/Loray/i);
       expect(ctx.hierarchy.departement?.code).toBe("25");
 
-      // Tools dynamiques : navigate, search, back + action
+      // Tools dynamiques : navigate, search, back, action, map, select, compare
       const tools = session.getTools();
-      expect(tools.length).toBe(4);
+      expect(tools.length).toBe(7);
       const names = tools.map((t) => t.name);
       expect(names).toContain("action");
     }, 60000);
@@ -174,21 +174,18 @@ describe("GeoContextSession", () => {
       expect(text).toMatch(/début/i);
     });
 
-    test("navigate → action → back → retour commune", async () => {
-      // Navigate
+    test("navigate → action → back → retour état initial", async () => {
+      // Navigate push le contexte vide dans l'historique puis met à jour ctx
       await session.handleToolCall("navigate", { target: "25349" });
-      // Thème
       await session.handleToolCall("action", { action: "identite" });
       expect(session.getContext().theme).toBe("identite");
 
-      // Back → retour avant le thème
+      // Back dépile le snapshot pré-navigate (état vide)
       await session.handleToolCall("back", {});
-      // Aucun back supplémentaire ici car navigate ne push pas d'historique
-      // avant action (action ne push pas l'historique, seul navigate le fait)
 
-      // Le contexte doit toujours être sur commune (historique navigate)
       const ctx = session.getContext();
-      expect(ctx.level).not.toBeNull();
+      // On est revenu au contexte avant navigate
+      expect(ctx.level).toBeNull();
     }, 60000);
 
     test("navigate A → navigate B → back → retour à A", async () => {

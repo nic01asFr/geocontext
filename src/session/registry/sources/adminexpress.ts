@@ -58,10 +58,10 @@ export const COMMUNE_IDENTITE: SourceDef = {
   },
   fields: [
     { key: "code_insee", label: "Code INSEE", type: "string", primary: true },
-    { key: "nom", label: "Nom", type: "string", primary: true },
+    { key: "nom_officiel", label: "Nom", type: "string", primary: true },
     { key: "population", label: "Population", type: "number", unit: "hab", primary: true },
     {
-      key: "superficie",
+      key: "superficie_cadastrale",
       label: "Superficie",
       type: "number",
       unit: "ha",
@@ -69,36 +69,11 @@ export const COMMUNE_IDENTITE: SourceDef = {
       primary: true,
     },
     { key: "statut", label: "Statut", type: "string", primary: false },
-    {
-      key: "siren_epci",
-      label: "SIREN EPCI",
-      type: "string",
-      primary: false,
-    },
-    {
-      key: "code_insee_du_departement",
-      label: "Code département",
-      type: "string",
-      primary: false,
-    },
-    {
-      key: "code_insee_de_la_region",
-      label: "Code région",
-      type: "string",
-      primary: false,
-    },
-    {
-      key: "code_insee_du_canton",
-      label: "Code canton",
-      type: "string",
-      primary: false,
-    },
-    {
-      key: "code_insee_de_l_arrondissement",
-      label: "Code arrondissement",
-      type: "string",
-      primary: false,
-    },
+    { key: "codes_siren_des_epci", label: "SIREN EPCI", type: "string", primary: false },
+    { key: "code_insee_du_departement", label: "Code département", type: "string", primary: false },
+    { key: "code_insee_de_la_region", label: "Code région", type: "string", primary: false },
+    { key: "code_insee_du_canton", label: "Code canton", type: "string", primary: false },
+    { key: "code_insee_de_l_arrondissement", label: "Code arrondissement", type: "string", primary: false },
   ],
   priority: "required",
 };
@@ -129,9 +104,9 @@ export const EPCI_IDENTITE: SourceDef = {
   },
   fields: [
     { key: "code_siren", label: "Code SIREN", type: "string", primary: true },
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "nature_juridique", label: "Nature juridique", type: "string", primary: true },
-    { key: "nombre_de_communes", label: "Communes membres", type: "number", primary: true },
+    { key: "nom_officiel", label: "Nom", type: "string", primary: true },
+    { key: "nature", label: "Nature juridique", type: "string", primary: true },
+    { key: "codes_insee_des_communes_membres", label: "Communes membres", type: "string", primary: false },
   ],
   priority: "required",
 };
@@ -159,8 +134,9 @@ export const DEPARTEMENT_IDENTITE: SourceDef = {
   },
   fields: [
     { key: "code_insee", label: "Code INSEE", type: "string", primary: true },
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "chf_lieu", label: "Chef-lieu", type: "string", primary: false },
+    { key: "nom_officiel", label: "Nom", type: "string", primary: true },
+    { key: "code_siren", label: "Code SIREN", type: "string", primary: false },
+    { key: "code_insee_de_la_region", label: "Code région", type: "string", primary: false },
   ],
   priority: "required",
 };
@@ -188,7 +164,8 @@ export const REGION_IDENTITE: SourceDef = {
   },
   fields: [
     { key: "code_insee", label: "Code INSEE", type: "string", primary: true },
-    { key: "nom", label: "Nom", type: "string", primary: true },
+    { key: "nom_officiel", label: "Nom", type: "string", primary: true },
+    { key: "code_siren", label: "Code SIREN", type: "string", primary: false },
   ],
   priority: "required",
 };
@@ -209,7 +186,7 @@ export const COMMUNE_IRIS: SourceDef = {
   label: "IRIS",
   description: "Découpage infra-communal INSEE (quartiers statistiques)",
   endpoint: "gpf_wfs",
-  typename: "CONTOURS-IRIS.LATEST:iris_ge",
+  typename: "STATISTICALUNITS.IRISGE:iris_ge",
   levels: ["commune"],
   theme: "identite",
   action: "iris",
@@ -222,7 +199,7 @@ export const COMMUNE_IRIS: SourceDef = {
     { key: "code_iris", label: "Code IRIS", type: "string", primary: true },
     { key: "nom_iris", label: "Nom", type: "string", primary: true },
     {
-      key: "typ_iris",
+      key: "type_iris",
       label: "Type",
       type: "enum",
       enumValues: {
@@ -233,6 +210,7 @@ export const COMMUNE_IRIS: SourceDef = {
       },
       primary: true,
     },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   priority: "recommended",
 };

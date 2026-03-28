@@ -25,6 +25,7 @@ const SPATIAL_BBOX = {
   strategy: "spatial" as const,
   spatialOp: "bbox" as const,
   from: "context.bbox" as const,
+  geometryColumn: "geometrie",
 };
 
 // ==========================================================================
@@ -54,7 +55,7 @@ export const HYDRO_COURS_EAU: SourceDef = {
     },
     { key: "regime", label: "Régime", type: "string", primary: false },
     { key: "statut", label: "Statut", type: "string", primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -105,7 +106,7 @@ export const HYDRO_PLANS_EAU: SourceDef = {
       transforms: ["m2_to_ha"],
       primary: true,
     },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -118,30 +119,31 @@ export const HYDRO_PLANS_EAU: SourceDef = {
 // ==========================================================================
 
 /**
- * Stations de mesure qualité des cours d'eau (Hub'Eau).
+ * Stations de mesure des niveaux des nappes (Hub'Eau).
  *
- * Route : GET /v1/qualite_cours_eau/station?code_commune=XXXXX
+ * Réseau BSS : stations piézométriques de suivi des eaux souterraines.
+ *
+ * Route : GET /v1/niveaux_nappes/stations?code_commune=XXXXX
  */
 export const HYDRO_QUALITE_STATIONS: SourceDef = {
-  id: "hubeau_qualite_stations",
-  label: "Stations qualité eau",
-  description: "Stations de mesure de la qualité des cours d'eau (Hub'Eau)",
+  id: "hubeau_nappes_stations",
+  label: "Stations piézométriques",
+  description: "Stations de suivi des niveaux des nappes souterraines (Hub'Eau / BSS)",
   endpoint: "hubeau",
-  path: "/v1/qualite_cours_eau/station",
+  path: "/v1/niveaux_nappes/stations",
   levels: ["commune"],
   theme: "hydrologie",
-  action: "qualite",
+  action: "nappes",
   pivot: {
     strategy: "attribute",
     attribute: "code_commune",
     from: "context.code",
   },
   fields: [
-    { key: "code_station", label: "Code station", type: "string", primary: true },
-    { key: "libelle_station", label: "Nom", type: "string", primary: true },
-    { key: "libelle_cours_eau", label: "Cours d'eau", type: "string", primary: true },
-    { key: "longitude", label: "Longitude", type: "number", primary: false },
-    { key: "latitude", label: "Latitude", type: "number", primary: false },
+    { key: "code_bss", label: "Code BSS", type: "string", primary: true },
+    { key: "nom_commune", label: "Commune", type: "string", primary: false },
+    { key: "date_debut_mesure", label: "Début mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
+    { key: "date_fin_mesure", label: "Fin mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
   ],
   priority: "optional",
 };

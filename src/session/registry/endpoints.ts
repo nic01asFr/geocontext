@@ -162,12 +162,13 @@ const GEORISQUES_REST: EndpointDef = {
  * RNB — Référentiel National des Bâtiments.
  *
  * Identifiant universel et pérenne pour chaque bâtiment (rnb_id).
- * API REST GeoJSON. Filtrage par code_insee, point, bbox.
+ * API REST JSON. Filtrage par insee_code, point, bbox.
+ * Réponse paginée : { results: [...], count, next }
  */
 const RNB: EndpointDef = {
   id: "rnb",
-  baseUrl: "https://api.rnb.beta.gouv.fr/v1",
-  protocol: "rest_geojson",
+  baseUrl: "https://rnb-api.beta.gouv.fr/api/alpha",
+  protocol: "rest_json",
   nativeCrs: "EPSG:4326",
   maxFeatures: 100,
   timeoutMs: 15_000,
@@ -176,15 +177,15 @@ const RNB: EndpointDef = {
 };
 
 /**
- * DVF — Demandes de Valeurs Foncières (via API cquest).
+ * DVF+ — Demandes de Valeurs Foncières (API CEREMA / DVF+).
  *
- * Transactions immobilières géolocalisées. Filtrage par code_insee,
- * code_parcelle (idpar), section. Dates au format YYYY-MM-DD.
+ * Transactions immobilières. Filtrage par code_insee ou idpar (parcelle).
+ * Réponse paginée : { count, next, previous, results: [...] }
  */
 const DVF: EndpointDef = {
   id: "dvf",
-  baseUrl: "https://api.cquest.org/dvf",
-  protocol: "rest_geojson",
+  baseUrl: "https://apidf-preprod.cerema.fr/dvf_opendata",
+  protocol: "rest_json",
   nativeCrs: "EPSG:4326",
   maxFeatures: 500,
   timeoutMs: 15_000,

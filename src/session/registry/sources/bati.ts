@@ -41,6 +41,7 @@ export const BATI_BDTOPO_COMMUNE: SourceDef = {
     strategy: "spatial",
     spatialOp: "bbox",
     from: "context.bbox",
+    geometryColumn: "geometrie",
   },
   fields: [
     { key: "cleabs", label: "Identifiant BDTOPO", type: "string", primary: false },
@@ -65,11 +66,12 @@ export const BATI_BDTOPO_COMMUNE: SourceDef = {
       },
       primary: true,
     },
+    { key: "usage_1", label: "Usage principal", type: "string", primary: true },
     { key: "hauteur", label: "Hauteur", type: "number", unit: "m", transforms: ["round_2"], primary: true },
     { key: "nombre_de_logements", label: "Logements", type: "number", primary: true },
     { key: "nombre_d_etages", label: "Étages", type: "number", primary: false },
     { key: "etat_de_l_objet", label: "État", type: "string", primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -95,6 +97,7 @@ export const BATI_BDTOPO_PARCELLE: SourceDef = {
     strategy: "spatial",
     spatialOp: "intersects",
     from: "context.geometry",
+    geometryColumn: "geometrie",
   },
   fields: BATI_BDTOPO_COMMUNE.fields,
   constraints: {
@@ -114,20 +117,20 @@ export const BATI_BDTOPO_PARCELLE: SourceDef = {
  * Le RNB attribue un identifiant universel pérenne (rnb_id) à chaque bâtiment.
  * Format : A1B2-C3D4-E5F6 (12 caractères, tirets).
  *
- * Route : GET /v1/buildings?code_insee=XXXXX
+ * Route : GET /buildings/?insee_code=XXXXX
  */
 export const BATI_RNB_COMMUNE: SourceDef = {
   id: "bati_rnb_commune",
   label: "Bâtiments RNB",
   description: "Bâtiments avec identifiant universel pérenne (RNB)",
   endpoint: "rnb",
-  path: "/buildings",
+  path: "/buildings/",
   levels: ["commune"],
   theme: "bati",
   action: "rnb",
   pivot: {
     strategy: "attribute",
-    attribute: "code_insee",
+    attribute: "insee_code",
     from: "context.code",
   },
   fields: [
@@ -227,6 +230,7 @@ export const BATIMENT_IDENTITE_BDTOPO: SourceDef = {
     strategy: "spatial",
     spatialOp: "bbox",
     from: "context.bbox",
+    geometryColumn: "geometrie",
   },
   fields: BATI_BDTOPO_COMMUNE.fields,
   constraints: {

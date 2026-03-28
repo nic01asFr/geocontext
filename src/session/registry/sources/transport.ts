@@ -23,6 +23,7 @@ const SPATIAL_BBOX = {
   strategy: "spatial" as const,
   spatialOp: "bbox" as const,
   from: "context.bbox" as const,
+  geometryColumn: "geometrie",
 };
 
 // ==========================================================================
@@ -84,7 +85,7 @@ export const TRANSPORT_ROUTES: SourceDef = {
     { key: "nombre_de_voies", label: "Nombre de voies", type: "number", primary: false },
     { key: "largeur_de_chaussee", label: "Largeur chaussée", type: "number", unit: "m", primary: false },
     { key: "nom_voie_gauche", label: "Nom voie", type: "string", primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   userFilters: ROUTE_FILTERS,
   constraints: {
@@ -130,7 +131,7 @@ export const TRANSPORT_FERROVIAIRE: SourceDef = {
     { key: "usage", label: "Usage", type: "string", primary: true },
     { key: "nb_voies", label: "Nombre de voies", type: "number", primary: false },
     { key: "electrifie", label: "Électrifié", type: "string", primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,

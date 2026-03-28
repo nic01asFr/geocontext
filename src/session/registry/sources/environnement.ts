@@ -9,13 +9,13 @@
  *   avant d'appeler ces sources (résolu au navigate via ADMINEXPRESS).
  *
  * Typenames WFS (Géoplateforme) :
- *   PROTECTEDAREAS.ZNIEFF1:znieff1     — ZNIEFF type I (habitats remarquables)
- *   PROTECTEDAREAS.ZNIEFF2:znieff2     — ZNIEFF type II (grands ensembles)
- *   PROTECTEDAREAS.SIC:sic              — Sites d'Importance Communautaire (Natura 2000)
- *   PROTECTEDAREAS.ZPS:zps              — Zones de Protection Spéciale (Natura 2000)
- *   PROTECTEDAREAS.PNR:pnr              — Parcs Naturels Régionaux
- *   PROTECTEDAREAS.RNN:rnn              — Réserves Naturelles Nationales
- *   PROTECTEDAREAS.PN:pn                — Parcs Nationaux
+ *   patrinat_znieff1:znieff1     — ZNIEFF type I (habitats remarquables)
+ *   patrinat_znieff2:znieff2     — ZNIEFF type II (grands ensembles)
+ *   patrinat_sic:sic              — Sites d'Importance Communautaire (Natura 2000)
+ *   patrinat_zps:zps              — Zones de Protection Spéciale (Natura 2000)
+ *   patrinat_pnr:pnr              — Parcs Naturels Régionaux
+ *   patrinat_rnn:rnn              — Réserves Naturelles Nationales
+ *   patrinat_pn:pn                — Parcs Nationaux
  *
  * @see docs/terrid-spec.md — contrainte spatial-only
  */
@@ -30,6 +30,7 @@ const SPATIAL_BBOX = {
   strategy: "spatial" as const,
   spatialOp: "bbox" as const,
   from: "context.bbox" as const,
+  geometryColumn: "geom",
 };
 
 const SPATIAL_INTERSECTS = {
@@ -54,7 +55,7 @@ export const ENV_ZNIEFF1: SourceDef = {
   label: "ZNIEFF type I",
   description: "Zones naturelles d'intérêt écologique — habitats remarquables",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.ZNIEFF1:znieff1",
+  typename: "patrinat_znieff1:znieff1",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "znieff",
@@ -63,7 +64,7 @@ export const ENV_ZNIEFF1: SourceDef = {
     { key: "id_mnhn", label: "Identifiant MNHN", type: "string", primary: false },
     { key: "nom", label: "Nom", type: "string", primary: true },
     { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -82,7 +83,7 @@ export const ENV_ZNIEFF2: SourceDef = {
   label: "ZNIEFF type II",
   description: "Zones naturelles d'intérêt écologique — grands ensembles naturels",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.ZNIEFF2:znieff2",
+  typename: "patrinat_znieff2:znieff2",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "znieff",
@@ -91,7 +92,7 @@ export const ENV_ZNIEFF2: SourceDef = {
     { key: "id_mnhn", label: "Identifiant MNHN", type: "string", primary: false },
     { key: "nom", label: "Nom", type: "string", primary: true },
     { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -114,7 +115,7 @@ export const ENV_NATURA2000_SIC: SourceDef = {
   label: "Natura 2000 — Habitats (SIC)",
   description: "Sites d'Importance Communautaire (Directive Habitats)",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.SIC:sic",
+  typename: "patrinat_sic:sic",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "natura2000",
@@ -129,7 +130,7 @@ export const ENV_NATURA2000_SIC: SourceDef = {
       unit: "ha",
       primary: false,
     },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -147,7 +148,7 @@ export const ENV_NATURA2000_ZPS: SourceDef = {
   label: "Natura 2000 — Oiseaux (ZPS)",
   description: "Zones de Protection Spéciale (Directive Oiseaux)",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.ZPS:zps",
+  typename: "patrinat_zps:zps",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "natura2000",
@@ -162,7 +163,7 @@ export const ENV_NATURA2000_ZPS: SourceDef = {
       unit: "ha",
       primary: false,
     },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -182,7 +183,7 @@ export const ENV_PNR: SourceDef = {
   label: "Parcs Naturels Régionaux",
   description: "Parcs Naturels Régionaux (PNR)",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.PNR:pnr",
+  typename: "patrinat_pnr:pnr",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "pnr",
@@ -197,7 +198,7 @@ export const ENV_PNR: SourceDef = {
       primary: true,
     },
     { key: "url", label: "Site web", type: "string", primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -213,7 +214,7 @@ export const ENV_RNN: SourceDef = {
   label: "Réserves Naturelles Nationales",
   description: "Réserves Naturelles Nationales (RNN)",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.RNN:rnn",
+  typename: "patrinat_rnn:rnn",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "rnn",
@@ -221,7 +222,7 @@ export const ENV_RNN: SourceDef = {
   fields: [
     { key: "nom", label: "Nom", type: "string", primary: true },
     { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,
@@ -237,7 +238,7 @@ export const ENV_PN: SourceDef = {
   label: "Parcs Nationaux",
   description: "Parcs Nationaux (zones cœur)",
   endpoint: "gpf_wfs",
-  typename: "PROTECTEDAREAS.PN:pn",
+  typename: "patrinat_pn:pn",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "pn",
@@ -245,7 +246,7 @@ export const ENV_PN: SourceDef = {
   fields: [
     { key: "nom", label: "Nom", type: "string", primary: true },
     { key: "date_crea", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "the_geom", label: "Géométrie", type: "geometry" },
+    { key: "geom", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
     spatialOnly: true,

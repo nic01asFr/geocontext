@@ -169,25 +169,24 @@ const DVF_FILTERS: UserFilterDef[] = [
     key: "period",
     label: "Période",
     type: "date_range",
-    toParam: "date_mutation",
+    toParam: "datemut",
   },
   {
-    key: "type_local",
-    label: "Type de local",
+    key: "codtypbien",
+    label: "Type de bien",
     type: "enum",
     values: {
-      Maison: "Maison",
-      Appartement: "Appartement",
-      Local: "Local commercial/industriel",
-      Dépendance: "Dépendance",
+      "1": "Maison",
+      "2": "Appartement",
+      "4": "Local commercial/industriel",
     },
-    toParam: "type_local",
+    toParam: "codtypbien",
   },
   {
     key: "valeur_min",
     label: "Valeur minimale (€)",
     type: "number_min",
-    toParam: "valeur_fonciere",
+    toParam: "valeurfonc",
   },
 ];
 
@@ -197,44 +196,43 @@ const DVF_FILTERS: UserFilterDef[] = [
  * Demandes de Valeurs Foncières : historique des ventes immobilières.
  * Tri chronologique descendant.
  *
- * Route : GET /dvf?code_commune=XXXXX
+ * Route : GET /dvf_opendata/mutations/?code_insee=XXXXX
  */
 export const ECONOMIE_DVF_COMMUNE: SourceDef = {
   id: "eco_dvf_commune",
   label: "Transactions immobilières (DVF)",
   description: "Historique des ventes immobilières sur la commune",
   endpoint: "dvf",
-  path: "",
+  path: "/mutations/",
   levels: ["commune"],
   theme: "economie",
   action: "transactions",
   pivot: {
     strategy: "attribute",
-    attribute: "code_commune",
+    attribute: "code_insee",
     from: "context.code",
   },
   fields: [
     {
-      key: "date_mutation",
+      key: "datemut",
       label: "Date de vente",
       type: "date",
       transforms: ["parse_date_iso", "format_date_fr"],
       primary: true,
     },
     {
-      key: "valeur_fonciere",
+      key: "valeurfonc",
       label: "Prix",
       type: "number",
       unit: "€",
       transforms: ["round_2"],
       primary: true,
     },
-    { key: "type_local", label: "Type de bien", type: "string", primary: true },
-    { key: "surface_reelle_bati", label: "Surface bâtie", type: "number", unit: "m²", primary: true },
-    { key: "nombre_pieces_principales", label: "Pièces", type: "number", primary: false },
-    { key: "surface_terrain", label: "Surface terrain", type: "number", unit: "m²", primary: false },
-    { key: "code_postal", label: "Code postal", type: "string", primary: false },
-    { key: "adresse_nom_voie", label: "Voie", type: "string", primary: false },
+    { key: "libtypbien", label: "Type de bien", type: "string", primary: true },
+    { key: "sbati", label: "Surface bâtie", type: "number", unit: "m²", primary: true },
+    { key: "sterr", label: "Surface terrain", type: "number", unit: "m²", primary: false },
+    { key: "coddep", label: "Département", type: "string", primary: false },
+    { key: "l_idpar", label: "Parcelles", type: "string", primary: false },
   ],
   userFilters: DVF_FILTERS,
   constraints: {
@@ -248,20 +246,20 @@ export const ECONOMIE_DVF_COMMUNE: SourceDef = {
 /**
  * Transactions DVF d'une parcelle.
  *
- * Route : GET /dvf?code_parcelle=XXXXXXXXXXXXXX
+ * Route : GET /dvf_opendata/mutations/?idpar=XXXXXXXXXXXXXX
  */
 export const ECONOMIE_DVF_PARCELLE: SourceDef = {
   id: "eco_dvf_parcelle",
   label: "Transactions de la parcelle",
   description: "Historique des ventes sur cette parcelle",
   endpoint: "dvf",
-  path: "",
+  path: "/mutations/",
   levels: ["parcelle"],
   theme: "cadastre",
   action: "transactions",
   pivot: {
     strategy: "attribute",
-    attribute: "code_parcelle",
+    attribute: "idpar",
     from: "context.code",
   },
   fields: ECONOMIE_DVF_COMMUNE.fields,
