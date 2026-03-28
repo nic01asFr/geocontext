@@ -38,6 +38,9 @@
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
+/** URI de la ressource UI carte (MCP Apps). */
+const MAP_UI_RESOURCE = "ui://geocontext-map";
+
 import { registry } from "./registry/index.js";
 import { buildActionDescription, buildActionEnums, THEME_META } from "./registry/tree.js";
 import { executeSource, executeSources } from "./executors/executor.js";
@@ -212,6 +215,7 @@ export class GeoContextSession {
     return textResult(
       `Navigué vers ${result.name} (${result.level}, ${result.code}).\n` +
       `Thèmes disponibles : ${themeLabels.join(", ")}.`,
+      this.ctx,
     );
   }
 
@@ -333,7 +337,7 @@ export class GeoContextSession {
     }
 
     const breadcrumb = formatBreadcrumb(this.ctx);
-    return richResult(breadcrumb + formatSourceResults(results, this.ctx), layerSpecs);
+    return richResult(breadcrumb + formatSourceResults(results, this.ctx), layerSpecs, this.ctx);
   }
 
   /**
@@ -398,6 +402,7 @@ export class GeoContextSession {
       this.ctx.name
         ? `Retour à ${this.ctx.name} (${this.ctx.level}).`
         : "Retour au contexte initial.",
+      this.ctx,
     );
   }
 
@@ -571,6 +576,7 @@ export class GeoContextSession {
       `── ${theme1Label} ──\n${theme1Summary}\n\n` +
       `── ${theme2Label} ──\n${theme2Summary}`,
       layerSpecs,
+      this.ctx,
     );
   }
 
@@ -648,6 +654,7 @@ export class GeoContextSession {
         required: ["target"],
       },
       annotations: { title: "Naviguer", openWorldHint: true },
+      _meta: { ui: { resourceUri: MAP_UI_RESOURCE } },
     };
   }
 
@@ -703,6 +710,7 @@ export class GeoContextSession {
       description,
       inputSchema: { type: "object" as const, properties, required: ["action"] },
       annotations: { title: "Action thématique", openWorldHint: true },
+      _meta: { ui: { resourceUri: MAP_UI_RESOURCE } },
     };
   }
 
@@ -760,6 +768,7 @@ export class GeoContextSession {
         required: ["operation", "layer"],
       },
       annotations: { title: "Carte", readOnlyHint: false, idempotentHint: true },
+      _meta: { ui: { resourceUri: MAP_UI_RESOURCE } },
     };
   }
 
@@ -803,6 +812,7 @@ export class GeoContextSession {
         required: ["theme"],
       },
       annotations: { title: "Comparer", openWorldHint: true },
+      _meta: { ui: { resourceUri: MAP_UI_RESOURCE } },
     };
   }
 
@@ -831,6 +841,7 @@ export class GeoContextSession {
         required: ["id"],
       },
       annotations: { title: "Sélectionner", openWorldHint: true },
+      _meta: { ui: { resourceUri: MAP_UI_RESOURCE } },
     };
   }
 
@@ -914,8 +925,12 @@ function formatSourceResults(
 // Utilitaires
 // ==========================================================================
 
-function textResult(text: string): CallToolResult {
-  return { content: [{ type: "text", text }] };
+function textResult(text: string, ctx?: NavigationContext): CallToolResult {
+  const result: CallToolResult = { content: [{ type: "text", text }] };
+  if (ctx) {
+    (result as any)._meta = { ui: { data: buildUIData(ctx) } };
+  }
+  return result;
 }
 
 /**
@@ -962,6 +977,7 @@ const WEB_UI_URL = process.env.TRANSPORT_TYPE === "http"
 function richResult(
   text: string,
   layerSpecs: Record<string, import("./registry/types.js").LayerSpec>,
+  ctx?: NavigationContext,
 ): CallToolResult {
   const content: CallToolResult["content"] = [{ type: "text", text }];
 
@@ -980,5 +996,31 @@ function richResult(
     }
   }
 
-  return { content };
+  const result: CallToolResult = { content };
+
+  // Données UI pour MCP Apps (iframe carte intégrée)
+  if (ctx) {
+    (result as any)._meta = {
+      ui: { data: { ...buildUIData(ctx), layerSpecs } },
+    };
+  }
+
+  return result;
+}
+
+/**
+ * Construit les données UI envoyées au composant carte MCP Apps.
+ * Ces données sont transmises via _meta.ui.data dans les résultats tools,
+ * puis relayées à l'iframe via postMessage par le client MCP.
+ */
+function buildUIData(ctx: NavigationContext): Record<string, unknown> {
+  return {
+    level: ctx.level,
+    code: ctx.code,
+    name: ctx.name,
+    bbox: ctx.bbox,
+    hierarchy: ctx.hierarchy,
+    theme: ctx.theme,
+    layers: ctx.layers.map((l) => ({ name: l.name, visible: l.visible, featureCount: l.featureCount })),
+  };
 }

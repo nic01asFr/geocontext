@@ -95,6 +95,14 @@ function configureServer(server: Server): GeoContextSession {
       mimeType: "application/json",
     });
 
+    // UI bundle pour MCP Apps (carte interactive embarquable)
+    resources.push({
+      uri: "ui://geocontext-map",
+      name: "Carte interactive",
+      description: "Carte MapLibre embarquable — visualisation territoriale et couches thématiques",
+      mimeType: "text/html",
+    });
+
     if (ctx.level) {
       resources.push({
         uri: `geocontext://themes/${ctx.level}`,
@@ -210,6 +218,19 @@ Les résultats d'actions incluent des layerSpecs pour le rendu direct sur carte.
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
     const ctx = session.getContext();
+
+    // ui://geocontext-map — bundle HTML carte (MCP Apps)
+    if (uri === "ui://geocontext-map") {
+      const bundlePath = join(__dirname, "../public/ui/geocontext-map.html");
+      const html = readFileSync(bundlePath, "utf-8");
+      return {
+        contents: [{
+          uri,
+          mimeType: "text/html",
+          text: html,
+        }],
+      };
+    }
 
     if (uri === "geocontext://context") {
       return {

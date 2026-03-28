@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>geocontext — carte</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --bg-panel: #1a1d27;
+      --border: #2e3348;
+      --text: #e1e4ed;
+      --text-muted: #8b90a5;
+      --accent: #5b8def;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Barre de contexte ── */
+    #context-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+
+    #breadcrumb {
+      flex: 1;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      background: rgba(91, 141, 239, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(91, 141, 239, 0.3);
+      cursor: pointer;
+      transition: background 120ms;
+    }
+
+    .chip:hover { background: rgba(91, 141, 239, 0.25); }
+    .chip.active { background: var(--accent); color: #fff; }
+
+    /* ── Carte ── */
+    #map { flex: 1; width: 100%; }
+
+    /* ── Panneau info (overlay sur la carte) ── */
+    #info-panel {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      max-height: 35%;
+      overflow-y: auto;
+      background: rgba(26, 29, 39, 0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+      z-index: 20;
+    }
+
+    #info-panel.visible { display: block; }
+
+    #info-panel h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    /* ── Tooltip ── */
+    .map-tooltip {
+      position: absolute;
+      background: rgba(15, 17, 23, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--text);
+      pointer-events: none;
+      z-index: 30;
+      max-width: 260px;
+      display: none;
+    }
+
+    /* ── Stat rapide ── */
+    .stat-row {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+    .stat-row .label { color: var(--text-muted); }
+    .stat-row .value { font-weight: 600; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<!-- Barre de contexte : breadcrumb + chips thèmes -->
+<div id="context-bar">
+  <span id="breadcrumb">geocontext</span>
+  <div id="theme-chips"></div>
+</div>
+
+<!-- Carte MapLibre -->
+<div id="map"></div>
+
+<!-- Panneau info overlay -->
+<div id="info-panel">
+  <h4 id="info-title">Données</h4>
+  <div id="info-content"></div>
+</div>
+
+<!-- Tooltip hover -->
+<div id="tooltip" class="map-tooltip"></div>
+
+<script>
+// ================================================================
+// MCP Apps Bridge — communication avec le client MCP host
+// ================================================================
+
+const MCPBridge = {
+  _pendingCallbacks: new Map(),
+  _nextId: 0,
+
+  init() {
+    window.addEventListener("message", (event) => {
+      const msg = event.data;
+      if (!msg || !msg.type) return;
+
+      switch (msg.type) {
+        case "mcp:context":
+          this._onContext(msg.data);
+          break;
+        case "mcp:layerSpecs":
+          this._onLayerSpecs(msg.data);
+          break;
+        case "mcp:toolResult":
+          this._onToolResult(msg.data);
+          break;
+        case "mcp:response":
+          this._handleResponse(msg);
+          break;
+      }
+    });
+
+    // Signaler au host que l'iframe est prête
+    this._postToHost({ type: "mcp:ready" });
+  },
+
+  /** Demande au host d'appeler un tool MCP. */
+  callTool(name, args) {
+    return new Promise((resolve) => {
+      const id = ++this._nextId;
+      this._pendingCallbacks.set(id, resolve);
+      this._postToHost({
+        type: "mcp:callTool",
+        id,
+        name,
+        arguments: args,
+      });
+
+      // Timeout 30s
+      setTimeout(() => {
+        if (this._pendingCallbacks.has(id)) {
+          this._pendingCallbacks.delete(id);
+          resolve({ error: "Timeout" });
+        }
+      }, 30000);
+    });
+  },
+
+  _handleResponse(msg) {
+    const cb = this._pendingCallbacks.get(msg.id);
+    if (cb) {
+      this._pendingCallbacks.delete(msg.id);
+      cb(msg.data);
+    }
+  },
+
+  _postToHost(msg) {
+    if (window.parent !== window) {
+      window.parent.postMessage(msg, "*");
+    }
+  },
+
+  // Callbacks — définis plus bas
+  _onContext: () => {},
+  _onLayerSpecs: () => {},
+  _onToolResult: () => {},
+};
+
+// ================================================================
+// Carte MapLibre
+// ================================================================
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: {
+    version: 8,
+    sources: {
+      "ign-plan": {
+        type: "raster",
+        tiles: [
+          "https://data.geopf.fr/wmts?" +
+          "SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
+          "&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2" +
+          "&STYLE=normal&TILEMATRIXSET=PM" +
+          "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}" +
+          "&FORMAT=image/png",
+        ],
+        tileSize: 256,
+        attribution: "&copy; IGN",
+      },
+    },
+    layers: [
+      { id: "ign-plan", type: "raster", source: "ign-plan", paint: { "raster-opacity": 0.85 } },
+    ],
+  },
+  center: [2.5, 46.8],
+  zoom: 5.5,
+  maxZoom: 20,
+});
+
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+
+// Couches actives
+const activeLayers = new Set();
+
+/** Ajoute une couche GeoJSON. */
+function addLayer(id, geojson, style = {}) {
+  removeLayer(id);
+  const srcId = `src-${id}`;
+  map.addSource(srcId, { type: "geojson", data: geojson });
+
+  const geomType = (geojson.features?.[0]?.geometry?.type) || "Point";
+
+  if (geomType.includes("Polygon")) {
+    map.addLayer({
+      id: `${id}-fill`, type: "fill", source: srcId,
+      paint: { "fill-color": style.color || "#5b8def", "fill-opacity": style.opacity || 0.2 },
+    });
+    map.addLayer({
+      id: `${id}-line`, type: "line", source: srcId,
+      paint: { "line-color": style.stroke || style.color || "#5b8def", "line-width": style.strokeWidth || 1.5 },
+    });
+    activeLayers.add(`${id}-fill`);
+    activeLayers.add(`${id}-line`);
+  } else if (geomType === "Point" || geomType === "MultiPoint") {
+    map.addLayer({
+      id, type: "circle", source: srcId,
+      paint: {
+        "circle-radius": style.radius || 5,
+        "circle-color": style.color || "#5b8def",
+        "circle-stroke-width": 1, "circle-stroke-color": "#fff",
+        "circle-opacity": style.opacity || 0.8,
+      },
+    });
+    activeLayers.add(id);
+  } else {
+    map.addLayer({
+      id, type: "line", source: srcId,
+      paint: { "line-color": style.color || "#5b8def", "line-width": style.strokeWidth || 2 },
+    });
+    activeLayers.add(id);
+  }
+}
+
+/** Supprime une couche et sa source. */
+function removeLayer(id) {
+  for (const lid of [`${id}-fill`, `${id}-line`, id]) {
+    if (map.getLayer(lid)) { map.removeLayer(lid); activeLayers.delete(lid); }
+  }
+  if (map.getSource(`src-${id}`)) map.removeSource(`src-${id}`);
+}
+
+/** Supprime toutes les couches dynamiques. */
+function clearLayers() {
+  for (const lid of [...activeLayers]) {
+    if (map.getLayer(lid)) map.removeLayer(lid);
+  }
+  activeLayers.clear();
+  const style = map.getStyle();
+  if (style?.sources) {
+    for (const sid of Object.keys(style.sources)) {
+      if (sid.startsWith("src-")) map.removeSource(sid);
+    }
+  }
+}
+
+/** Zoom sur une bbox. */
+function fitBbox(bbox) {
+  if (!bbox || bbox.length !== 4) return;
+  map.fitBounds([[bbox[0], bbox[1]], [bbox[2], bbox[3]]], { padding: 30, duration: 600 });
+}
+
+// ================================================================
+// GeoJSON Fetcher (depuis Géoplateforme via layerSpecs)
+// ================================================================
+
+async function loadLayerSpecs(layerSpecs) {
+  for (const [sourceId, spec] of Object.entries(layerSpecs)) {
+    try {
+      const params = new URLSearchParams({
+        service: "WFS", version: "2.0.0", request: "GetFeature",
+        typeName: spec.typename, outputFormat: "application/json",
+        CQL_FILTER: spec.cqlFilter, count: String(spec.maxFeatures || 1000),
+        srsName: spec.srsName || "EPSG:4326",
+      });
+      const url = `${spec.wfsUrl}?${params}`;
+      const resp = await fetch(url);
+      if (!resp.ok) continue;
+
+      let geojson = await resp.json();
+      // Reprojection si nécessaire
+      if (spec.nativeCrs && spec.nativeCrs !== "EPSG:4326") {
+        geojson = reprojectLambert93(geojson);
+      }
+      if (geojson.features?.length > 0) {
+        addLayer(sourceId, geojson, spec.style || {});
+      }
+    } catch (e) {
+      console.warn(`[ui] Layer ${sourceId}:`, e.message);
+    }
+  }
+}
+
+// Lambert-93 → WGS84 (approximation pour la France)
+function reprojectLambert93(geojson) {
+  const first = getFirstCoord(geojson);
+  if (!first || first[0] < 10000) return geojson; // Déjà en 4326
+
+  const result = JSON.parse(JSON.stringify(geojson));
+  for (const f of result.features || []) {
+    if (f.geometry) f.geometry.coordinates = walkCoords(f.geometry.coordinates, l93toWgs84);
+  }
+  return result;
+}
+
+function l93toWgs84(c) {
+  const n=0.7256077650, C=11754255.426, Xs=700000, Ys=12655612.050, e=0.0818191910428;
+  const R = Math.sqrt((c[0]-Xs)**2 + (Ys-c[1])**2);
+  const gamma = Math.atan((c[0]-Xs)/(Ys-c[1]));
+  const latIso = -Math.log(R/C)/n;
+  const lon = gamma/n + 3*Math.PI/180;
+  let lat = 2*Math.atan(Math.exp(latIso)) - Math.PI/2;
+  for (let i=0;i<5;i++) lat = 2*Math.atan(Math.exp(latIso+e*Math.atanh(e*Math.sin(lat))))-Math.PI/2;
+  return [lon*180/Math.PI, lat*180/Math.PI];
+}
+
+function getFirstCoord(gj) {
+  const f = gj.features?.[0]; if (!f?.geometry) return null;
+  let c = f.geometry.coordinates; while (Array.isArray(c[0])) c = c[0]; return c;
+}
+function walkCoords(c, fn) {
+  return typeof c[0] === "number" ? fn(c) : c.map(x => walkCoords(x, fn));
+}
+if (!Math.atanh) Math.atanh = x => Math.log((1+x)/(1-x))/2;
+
+// ================================================================
+// UI — Contexte, thèmes, info panel
+// ================================================================
+
+const breadcrumbEl = document.getElementById("breadcrumb");
+const themeChipsEl = document.getElementById("theme-chips");
+const infoPanel = document.getElementById("info-panel");
+const infoTitle = document.getElementById("info-title");
+const infoContent = document.getElementById("info-content");
+const tooltip = document.getElementById("tooltip");
+
+/** Met à jour le breadcrumb + chips depuis le contexte MCP. */
+function updateUI(ctx) {
+  // Breadcrumb
+  if (ctx.name) {
+    const parts = [ctx.name];
+    if (ctx.hierarchy?.departement) parts.unshift(ctx.hierarchy.departement.name);
+    breadcrumbEl.textContent = parts.join(" › ");
+  } else {
+    breadcrumbEl.textContent = "geocontext";
+  }
+
+  // Chips thèmes
+  if (ctx.themes && ctx.themes.length > 0) {
+    themeChipsEl.innerHTML = ctx.themes.map(t => {
+      const tid = t.id || t;
+      const label = t.label || tid;
+      const icon = t.icon || "";
+      const cls = tid === ctx.theme ? "chip active" : "chip";
+      return `<span class="${cls}" data-theme="${tid}">${icon} ${label}</span>`;
+    }).join("");
+
+    themeChipsEl.querySelectorAll(".chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        MCPBridge.callTool("action", { action: chip.dataset.theme });
+      });
+    });
+  } else {
+    themeChipsEl.innerHTML = "";
+  }
+
+  // Bbox
+  if (ctx.bbox) fitBbox(ctx.bbox);
+}
+
+/** Affiche les résultats textuels dans l'info panel. */
+function showInfo(title, text) {
+  infoTitle.textContent = title;
+  infoContent.innerHTML = text
+    .replace(/── (.+?) ──/g, "<strong style='color:var(--accent)'>$1</strong>")
+    .replace(/\n/g, "<br>");
+  infoPanel.classList.add("visible");
+}
+
+function hideInfo() {
+  infoPanel.classList.remove("visible");
+}
+
+// ================================================================
+// Tooltip sur hover features carte
+// ================================================================
+
+map.on("mousemove", (e) => {
+  // Interroger les features sous le curseur (toutes couches actives)
+  const layerIds = [...activeLayers].filter(lid => map.getLayer(lid));
+  if (layerIds.length === 0) { tooltip.style.display = "none"; return; }
+
+  const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
+  if (features.length === 0) {
+    tooltip.style.display = "none";
+    map.getCanvas().style.cursor = "";
+    return;
+  }
+
+  map.getCanvas().style.cursor = "pointer";
+  const props = features[0].properties || {};
+  const lines = Object.entries(props).slice(0, 5).map(([k, v]) =>
+    `<span style="color:var(--text-muted)">${k}:</span> ${v}`
+  );
+  tooltip.innerHTML = lines.join("<br>");
+  tooltip.style.display = "block";
+  tooltip.style.left = (e.point.x + 12) + "px";
+  tooltip.style.top = (e.point.y + 12) + "px";
+});
+
+// Clic sur feature → select
+map.on("click", (e) => {
+  const layerIds = [...activeLayers].filter(lid => map.getLayer(lid));
+  if (layerIds.length === 0) return;
+
+  const features = map.queryRenderedFeatures(e.point, { layers: layerIds });
+  if (features.length > 0) {
+    const props = features[0].properties || {};
+    // Chercher un identifiant exploitable
+    const id = props.idpar || props.id_parcelle || props.code_insee ||
+               props.id || props.gml_id || features[0].id;
+    if (id) {
+      MCPBridge.callTool("select", { id: String(id) });
+    }
+    return;
+  }
+
+  // Clic sur fond → navigate par coordonnées
+  const { lng, lat } = e.lngLat;
+  MCPBridge.callTool("navigate", { target: `${lng.toFixed(5)},${lat.toFixed(5)}` });
+});
+
+// ================================================================
+// Bridge MCP callbacks
+// ================================================================
+
+MCPBridge._onContext = (ctx) => {
+  updateUI(ctx);
+};
+
+MCPBridge._onLayerSpecs = (layerSpecs) => {
+  loadLayerSpecs(layerSpecs);
+};
+
+MCPBridge._onToolResult = (data) => {
+  const { toolName, text, layerSpecs, context } = data;
+
+  // Mettre à jour la carte et l'UI
+  if (context) updateUI(context);
+  if (layerSpecs && Object.keys(layerSpecs).length > 0) {
+    loadLayerSpecs(layerSpecs);
+  }
+  if (text) showInfo(toolName || "Résultat", text);
+
+  // Si navigate → effacer les anciennes couches
+  if (toolName === "navigate") {
+    clearLayers();
+    hideInfo();
+    if (context?.bbox) fitBbox(context.bbox);
+  }
+};
+
+// ================================================================
+// Mode standalone (sans host MCP — accès direct via navigateur)
+// ================================================================
+
+MCPBridge.init();
+
+// Si pas d'iframe (accès direct), tenter une connexion MCP HTTP
+if (window.parent === window) {
+  (async function standalone() {
+    const endpoint = window.location.origin + "/mcp";
+    let sessionId = null;
+    let reqId = 0;
+
+    async function mcpRequest(method, params = {}) {
+      const headers = { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" };
+      if (sessionId) headers["mcp-session-id"] = sessionId;
+
+      const resp = await fetch(endpoint, {
+        method: "POST", headers,
+        body: JSON.stringify({ jsonrpc: "2.0", id: ++reqId, method, params }),
+      });
+
+      const sid = resp.headers.get("mcp-session-id");
+      if (sid) sessionId = sid;
+
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const json = await resp.json();
+        return json.result;
+      }
+      // SSE → parse
+      const text = await resp.text();
+      for (const event of text.split("\n\n")) {
+        const dataLine = event.split("\n").find(l => l.startsWith("data: "));
+        if (!dataLine) continue;
+        try {
+          const msg = JSON.parse(dataLine.slice(6));
+          if (msg.id === reqId) return msg.result;
+        } catch {}
+      }
+      return null;
+    }
+
+    async function callTool(name, args = {}) {
+      const result = await mcpRequest("tools/call", { name, arguments: args });
+
+      // Extraire texte et layerSpecs
+      const content = result?.content ?? [];
+      let text = "";
+      let layerSpecs = null;
+      for (const c of content) {
+        if (c.type !== "text") continue;
+        try {
+          const parsed = JSON.parse(c.text);
+          if (parsed._type === "layerSpecs") { layerSpecs = parsed.layers; continue; }
+        } catch {}
+        text += c.text + "\n";
+      }
+
+      // Lire le contexte
+      const ctxResult = await mcpRequest("resources/read", { uri: "geocontext://context" });
+      const ctx = ctxResult?.contents?.[0]?.text ? JSON.parse(ctxResult.contents[0].text) : null;
+
+      // Lire les thèmes si territoire
+      if (ctx?.level) {
+        const themesResult = await mcpRequest("resources/read", { uri: `geocontext://themes/${ctx.level}` });
+        const themesData = themesResult?.contents?.[0]?.text ? JSON.parse(themesResult.contents[0].text) : null;
+        if (themesData?.themes) ctx.themes = themesData.themes;
+      }
+
+      MCPBridge._onToolResult({ toolName: name, text: text.trim(), layerSpecs, context: ctx });
+      return result;
+    }
+
+    // Surcharger le bridge pour le mode standalone
+    MCPBridge.callTool = callTool;
+
+    try {
+      await mcpRequest("initialize", {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "geocontext-map-ui", version: "1.0.0" },
+      });
+      await mcpRequest("notifications/initialized");
+
+      // Charger le contexte initial
+      const ctxResult = await mcpRequest("resources/read", { uri: "geocontext://context" });
+      const ctx = ctxResult?.contents?.[0]?.text ? JSON.parse(ctxResult.contents[0].text) : null;
+      if (ctx) {
+        if (ctx.level) {
+          const themesResult = await mcpRequest("resources/read", { uri: `geocontext://themes/${ctx.level}` });
+          const themesData = themesResult?.contents?.[0]?.text ? JSON.parse(themesResult.contents[0].text) : null;
+          if (themesData?.themes) ctx.themes = themesData.themes;
+        }
+        updateUI(ctx);
+      }
+
+      breadcrumbEl.textContent += " (connecté)";
+    } catch (e) {
+      breadcrumbEl.textContent = "geocontext (hors ligne)";
+      console.warn("[ui] Standalone connexion failed:", e.message);
+    }
+  })();
+}
+</script>
+
+</body>
+</html>
