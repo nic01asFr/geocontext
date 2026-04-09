@@ -158,7 +158,13 @@ async function executeWfsSource(
       }
 
       // Fallback (ex: partition = "200067874_25056" pour un PLUi)
+      // Ajouter un filtre spatial BBOX pour circonscrire à l'entité navigée
       cqlFilter = result.fallback.cql;
+      if (ctx.bbox) {
+        const [minLon, minLat, maxLon, maxLat] = ctx.bbox;
+        const geomCol = source.fields.find((f) => f.type === "geometry")?.key || "the_geom";
+        cqlFilter += ` AND BBOX(${geomCol}, ${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 'EPSG:4326')`;
+      }
       resolvedPartition = result.fallback.resolvedPartition;
       break;
     }
@@ -180,6 +186,15 @@ async function executeWfsSource(
 
   // 3. Exécuter la requête WFS
   const rawResult = await fetchWfs(endpoint, source, cqlFilter!);
+
+  // Si tronqué et pas de totalCount, lancer un count en parallèle
+  const maxFeatures = source.constraints?.maxFeaturesOverride ?? endpoint.maxFeatures;
+  if (rawResult.features.length >= maxFeatures && rawResult.totalCount == null) {
+    try {
+      rawResult.totalCount = await countWfs(endpoint, source, cqlFilter!);
+    } catch { /* count optionnel */ }
+  }
+
   const finalResult = finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
   // Mettre en cache le format partition résolu pour accélérer les requêtes suivantes
   if (finalResult.resolvedPartition) {
@@ -190,12 +205,36 @@ async function executeWfsSource(
 }
 
 /**
+ * Requête WFS count-only (resultType=hits) — retourne uniquement le nombre total.
+ * Beaucoup plus rapide qu'un GetFeature complet.
+ */
+async function countWfs(
+  endpoint: EndpointDef,
+  source: SourceDef,
+  cqlFilter: string,
+): Promise<number> {
+  const params = new URLSearchParams({
+    service: "WFS",
+    version: endpoint.wfsVersion ?? "2.0.0",
+    request: "GetFeature",
+    typeName: source.typename!,
+    resultType: "hits",
+    CQL_FILTER: cqlFilter,
+  });
+  const url = `${endpoint.baseUrl}?${params.toString()}`;
+  const response = await fetchWithRetry(url, endpoint);
+  const json = await response.json() as any;
+  return json.numberMatched ?? json.totalFeatures ?? 0;
+}
+
+/**
  * Construit et envoie une requête WFS GetFeature.
  */
 async function fetchWfs(
   endpoint: EndpointDef,
   source: SourceDef,
   cqlFilter: string,
+  maxOverride?: number,
 ): Promise<{ features: Record<string, unknown>[]; totalCount?: number }> {
   // Champs à demander (exclure les géométries pour réduire la taille)
   const propertyNames = source.fields
@@ -205,7 +244,7 @@ async function fetchWfs(
   // Inclure la géométrie si des champs geometry sont déclarés
   const hasGeometry = source.fields.some((f) => f.type === "geometry");
 
-  const maxFeatures = source.constraints?.maxFeaturesOverride ?? endpoint.maxFeatures;
+  const maxFeatures = maxOverride ?? source.constraints?.maxFeaturesOverride ?? endpoint.maxFeatures;
 
   const params = new URLSearchParams({
     service: "WFS",
@@ -217,8 +256,9 @@ async function fetchWfs(
     count: String(maxFeatures),
   });
 
-  // propertyName — seulement si on veut limiter les champs
-  if (propertyNames.length > 0 && !hasGeometry) {
+  // propertyName — toujours exclure la géométrie du fetch serveur
+  // (le frontend fetch les géométries directement via layerSpec)
+  if (propertyNames.length > 0) {
     params.set("propertyName", propertyNames.join(","));
   }
 
@@ -271,22 +311,37 @@ function finalizeWfsResult(
   const hasGeometry = source.fields.some((f) => f.type === "geometry");
   let layerSpec: LayerSpec | undefined;
   if (hasGeometry && source.typename) {
+    const isTruncated = raw.features.length >= maxFeatures;
+    const totalFeatures = raw.totalCount ?? undefined;
+    const pageSize = 1000;
+
     layerSpec = {
       wfsUrl: endpoint.baseUrl,
       typename: source.typename,
       cqlFilter,
       srsName: "EPSG:4326",
-      maxFeatures,
+      maxFeatures: pageSize,
       nativeCrs: endpoint.nativeCrs,
-      // displayStyle uniquement si explicitement défini sur la source
-      // sinon le frontend utilise la palette thématique (styles.js)
       style: source.displayStyle,
       theme: source.theme,
       label: source.label,
       primaryFields: source.fields
         .filter((f) => f.primary && f.type !== "geometry")
         .map((f) => f.key),
-      featureCount: transformed.length,
+      featureCount: totalFeatures ?? transformed.length,
+      // Toujours paginer si tronqué — le frontend charge les pages suivantes
+      ...(isTruncated ? {
+        paginated: true,
+        totalFeatures,
+        pageSize,
+      } : {}),
+      // Filtres et champs pour le data-panel interactif
+      filters: source.userFilters?.map((f) => ({
+        key: f.key, label: f.label, type: f.type, values: f.values,
+      })),
+      fields: source.fields
+        .filter((f) => f.type !== "geometry")
+        .map((f) => ({ key: f.key, label: f.label, type: f.type, primary: f.primary, unit: f.unit })),
     };
   }
 

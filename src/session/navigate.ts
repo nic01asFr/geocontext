@@ -66,6 +66,18 @@ export async function resolveTerritory(
   const t = target.trim();
   if (!t) return { success: false, error: "Cible de navigation vide." };
 
+  // 0. Format typé "level:code" (ex: "region:11", "departement:33", "epci:243300316")
+  const typedMatch = t.match(/^(region|departement|epci|commune):(.+)$/);
+  if (typedMatch) {
+    const [, level, code] = typedMatch;
+    switch (level) {
+      case "region": return resolveRegion(code);
+      case "departement": return resolveDepartement(code);
+      case "epci": return resolveEpci(code);
+      case "commune": return resolveCommune(code);
+    }
+  }
+
   // 1. Code INSEE commune (5 chiffres)
   if (/^\d{5}$/.test(t)) {
     return resolveCommune(t);
@@ -197,6 +209,51 @@ async function resolveCoordinates(
       success: false,
       error: `Erreur geocodage inversé : ${err instanceof Error ? err.message : String(err)}`,
     };
+  }
+}
+
+/**
+ * Résout une région par code INSEE.
+ * Utilise le fetch natif Node.js pour éviter les problèmes de node-fetch.
+ */
+async function resolveRegion(code: string): Promise<NavigateResult> {
+  // fetchWfsFeature utilise node-fetch qui peut échouer silencieusement
+  // pour les géométries lourdes → requêter sans géométrie d'abord
+  const params = new URLSearchParams({
+    service: "WFS",
+    version: "2.0.0",
+    request: "GetFeature",
+    typeName: "ADMINEXPRESS-COG.LATEST:region",
+    outputFormat: "application/json",
+    CQL_FILTER: `code_insee='${code}'`,
+    count: "1",
+    srsName: "EPSG:4326",
+  });
+
+  try {
+    const response = await fetch(`${GPF_WFS}?${params.toString()}`);
+    const json = await response.json() as any;
+    const feature = (json.features ?? [])[0];
+
+    if (!feature) {
+      return { success: false, error: `Région introuvable : ${code}` };
+    }
+
+    const props = feature.properties ?? {};
+    const name = props.nom_officiel ?? props.nom ?? code;
+
+    return {
+      success: true,
+      level: "region",
+      code,
+      name,
+      bbox: extractBbox(feature),
+      hierarchy: {
+        region: { code, name },
+      },
+    };
+  } catch (err) {
+    return { success: false, error: `Erreur résolution région ${code}: ${err}` };
   }
 }
 

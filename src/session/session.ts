@@ -322,10 +322,13 @@ export class GeoContextSession {
     const results = await executeSources(sources, this.ctx, userFilters);
     this.ctx.data[`${this.ctx.theme}.${action}`] = results;
 
-    // Ajouter les couches géographiques via layerSpec
+    // Mettre à jour les couches géographiques — remplacer si déjà présentes
+    const newSourceIds = results.map((r) => r.sourceId);
+    this.ctx.layers = this.ctx.layers.filter((l) => !newSourceIds.includes(l.name));
+
     const layerSpecs: Record<string, import("./registry/types.js").LayerSpec> = {};
     for (const r of results) {
-      if (r.layerSpec && r.success && !this.ctx.layers.some((l) => l.name === r.sourceId)) {
+      if (r.layerSpec && r.success) {
         this.ctx.layers.push({
           name: r.sourceId,
           visible: true,

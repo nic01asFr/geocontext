@@ -717,6 +717,21 @@ export interface LayerSpec {
 
   /** Champs primaires à afficher dans les popups */
   primaryFields?: string[];
+
+  /** Nombre total de features côté serveur (résultat hits) */
+  totalFeatures?: number;
+
+  /** true = le frontend doit paginer le fetch WFS (dataset volumineux) */
+  paginated?: boolean;
+
+  /** Taille de page pour le fetch paginé frontend */
+  pageSize?: number;
+
+  /** Filtres disponibles pour le data-panel interactif */
+  filters?: { key: string; label: string; type: string; values?: Record<string, string> }[];
+
+  /** Définition des champs pour le data-panel (labels, types, unités) */
+  fields?: { key: string; label: string; type: string; primary?: boolean; unit?: string }[];
 }
 
 // ==========================================================================

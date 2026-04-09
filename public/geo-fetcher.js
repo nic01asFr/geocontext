@@ -21,6 +21,14 @@ const ADMINEXPRESS_TYPENAMES = {
 
 const GPF_WFS_URL = "https://data.geopf.fr/wfs/ows";
 
+// Métadonnées de niveau pour les couches de contexte (doit correspondre à map.js)
+const ZOOM_TO_LEVEL_MAP = {
+  region:      { level: "region",      label: "RÉG",  color: "#7a8abd" },
+  departement: { level: "departement", label: "DÉP",  color: "#6a9aad" },
+  epci:        { level: "epci",        label: "EPCI", color: "#5aadad" },
+  commune:     { level: "commune",     label: "COM",  color: "#4aad8a" },
+};
+
 const GeoFetcher = {
   /**
    * Traite un résultat MCP tool call et extrait les layerSpecs.
@@ -31,13 +39,24 @@ const GeoFetcher = {
 
     for (const block of result.content) {
       if (block.type !== "text") continue;
-      try {
-        const parsed = JSON.parse(block.text);
-        if (parsed._type === "layerSpecs" && parsed.layers) {
-          return parsed.layers;
+      const text = block.text;
+
+      // Chercher toutes les occurrences de "{" et tenter un parse JSON complet
+      let i = 0;
+      while (i < text.length) {
+        const start = text.indexOf('{"_type":"layerSpecs"', i);
+        if (start === -1) break;
+        // Trouver la fermeture en comptant les accolades
+        let depth = 0, end = start;
+        for (; end < text.length; end++) {
+          if (text[end] === '{') depth++;
+          else if (text[end] === '}') { depth--; if (depth === 0) break; }
         }
-      } catch {
-        // Pas du JSON — c'est le texte pour le LLM, on ignore
+        try {
+          const parsed = JSON.parse(text.slice(start, end + 1));
+          if (parsed._type === "layerSpecs" && parsed.layers) return parsed.layers;
+        } catch {}
+        i = start + 1;
       }
     }
     return null;
@@ -92,43 +111,171 @@ const GeoFetcher = {
   },
 
   /**
+   * Charge la couche de contexte admin.
+   * En mode navigation : affiche les enfants de l'entité courante (filtre parent).
+   * En mode initial : affiche toutes les entités du niveau dans la bbox.
+   *
+   * @param {string} level - "region" | "departement" | "epci" | "commune"
+   * @param {number[]} bbox - viewport bbox
+   * @param {object} [parent] - contexte parent { level, code, hierarchy }
+   */
+  async loadContextLayer(level, bbox, parent) {
+    const def = ADMINEXPRESS_TYPENAMES[level];
+    if (!def) return;
+
+    try {
+      const propFields = level === "epci"
+        ? "code_siren,nom_officiel,geometrie"
+        : "code_insee,nom_officiel,geometrie";
+
+      // Construire le filtre CQL
+      let cqlFilter;
+      if (parent) {
+        // Mode navigation : filtrer les enfants par relation parent
+        const parentFilter = this._buildParentFilter(level, parent);
+        if (parentFilter) {
+          cqlFilter = parentFilter;
+        } else {
+          // Fallback bbox si pas de filtre parent possible
+          const pad = (level === "region") ? 3 : (level === "departement") ? 1 : 0.5;
+          const [minLon, minLat, maxLon, maxLat] = bbox;
+          cqlFilter = `BBOX(geometrie,${minLon - pad},${minLat - pad},${maxLon + pad},${maxLat + pad},'EPSG:4326')`;
+        }
+      } else {
+        // Mode initial : bbox avec padding
+        const pad = (level === "region") ? 3 : (level === "departement") ? 1 : 0.5;
+        const [minLon, minLat, maxLon, maxLat] = bbox;
+        cqlFilter = `BBOX(geometrie,${minLon - pad},${minLat - pad},${maxLon + pad},${maxLat + pad},'EPSG:4326')`;
+      }
+
+      const params = new URLSearchParams({
+        service: "WFS",
+        version: "2.0.0",
+        request: "GetFeature",
+        typeName: def.typename,
+        outputFormat: "application/json",
+        srsName: "EPSG:4326",
+        count: level === "commune" ? "1000" : "300",
+        propertyName: propFields,
+        CQL_FILTER: cqlFilter,
+      });
+
+      const response = await fetch(`${GPF_WFS_URL}?${params}`);
+      if (!response.ok) return;
+
+      const geojson = await response.json();
+      if (!geojson.features || geojson.features.length === 0) return;
+
+      geojson.features = geojson.features.map((f, i) => ({ ...f, id: i }));
+
+      const levelDef = ZOOM_TO_LEVEL_MAP[level];
+      GeoMap.addContextLayer(`_ctx_${level}`, geojson, levelDef);
+    } catch (err) {
+      console.warn(`[geo-fetcher] ctx layer ${level}: ${err.message}`);
+    }
+  },
+
+  /**
+   * Construit le filtre CQL par clé étrangère ADMINEXPRESS.
+   * Chaque relation parent→enfant utilise la FK exacte du schéma.
+   */
+  _buildParentFilter(childLevel, parent) {
+    const h = parent.hierarchy || {};
+    const level = parent.level;
+
+    switch (childLevel) {
+      case "departement":
+        // région → départements : FK departement.code_insee_de_la_region
+        if (h.region?.code) return `code_insee_de_la_region='${h.region.code}'`;
+        return null;
+
+      case "commune":
+        // EPCI → communes : FK commune.codes_siren_des_epci (multi-valué)
+        if (level === "epci" && h.epci?.siren)
+          return `codes_siren_des_epci LIKE '%${h.epci.siren}%'`;
+        // département → communes : FK commune.code_insee_du_departement
+        if (h.departement?.code)
+          return `code_insee_du_departement='${h.departement.code}'`;
+        return null;
+
+      default:
+        return null;
+    }
+  },
+
+  /**
    * Fetch une couche (WFS ou inline) et l'affiche sur la carte.
    * Retourne { sourceId, label, features, primaryFields } si succès.
    */
   async _fetchAndDisplay(sourceId, spec) {
     try {
-      let geojson;
+      const meta = {
+        label: spec.label || sourceId,
+        primaryFields: spec.primaryFields || [],
+        theme: spec.theme || null,
+      };
 
       if (spec.type === "inline") {
-        // GeoJSON embarqué directement dans le layerSpec (ex: ICPE, points REST)
-        geojson = spec.inlineGeojson;
-      } else {
-        // WFS fetch depuis Géoplateforme
-        const url = this._buildWfsUrl(spec);
-        const response = await fetch(url);
-        if (!response.ok) {
-          console.warn(`[geo-fetcher] ${sourceId}: HTTP ${response.status}`);
-          return null;
+        const geojson = spec.inlineGeojson;
+        if (geojson?.features?.length > 0) {
+          GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
+          return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields };
         }
-        geojson = await response.json();
-
-        // Reprojection si nécessaire
-        if (spec.nativeCrs && spec.nativeCrs !== "EPSG:4326") {
-          geojson = this._reproject(geojson, spec.nativeCrs);
-        }
+        return null;
       }
 
-      if (geojson?.features && geojson.features.length > 0) {
-        const meta = {
-          label: spec.label || sourceId,
-          primaryFields: spec.primaryFields || [],
-          theme: spec.theme || null,
-        };
+      // Mode paginé : explicite ou auto-détecté
+      if (spec.paginated) {
+        return await this._fetchPaginated(sourceId, spec, meta);
+      }
+
+      // Première page
+      const pageSize = spec.maxFeatures || 1000;
+      const url = this._buildWfsUrl(spec, 0, pageSize);
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.warn(`[geo-fetcher] ${sourceId}: HTTP ${response.status}`);
+        return null;
+      }
+      let geojson = await response.json();
+      if (spec.nativeCrs && spec.nativeCrs !== "EPSG:4326") {
+        geojson = this._reproject(geojson, spec.nativeCrs);
+      }
+
+      if (!geojson?.features?.length) return null;
+
+      // Auto-pagination : si la première page est pleine, il y a probablement plus
+      if (geojson.features.length >= pageSize) {
+        // Afficher la première page immédiatement
         GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
-        console.log(`[geo-fetcher] ${sourceId}: ${geojson.features.length} features chargées`);
-        return { sourceId, label: spec.label || sourceId, features: geojson.features, primaryFields: spec.primaryFields || [] };
+        console.log(`[geo-fetcher] ${sourceId}: ${geojson.features.length} features (page 1, auto-paginating...)`);
+
+        // Charger les pages suivantes
+        const allFeatures = [...geojson.features];
+        const maxTotal = 20000;
+        let startIndex = pageSize;
+        while (startIndex < maxTotal) {
+          const pageUrl = this._buildWfsUrl(spec, startIndex, pageSize);
+          const pageRes = await fetch(pageUrl);
+          if (!pageRes.ok) break;
+          let page = await pageRes.json();
+          if (spec.nativeCrs && spec.nativeCrs !== "EPSG:4326") {
+            page = this._reproject(page, spec.nativeCrs);
+          }
+          if (!page.features || page.features.length === 0) break;
+          allFeatures.push(...page.features);
+          GeoMap.updateGeoJsonSource(sourceId, { type: "FeatureCollection", features: allFeatures });
+          console.log(`[geo-fetcher] ${sourceId}: ${allFeatures.length} features (page ${Math.floor(startIndex / pageSize) + 1})`);
+          if (page.features.length < pageSize) break;
+          startIndex += pageSize;
+        }
+        return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields };
       }
-      return null;
+
+      // Single page — toutes les features tiennent dans une page
+      GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
+      console.log(`[geo-fetcher] ${sourceId}: ${geojson.features.length} features chargées`);
+      return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields };
     } catch (err) {
       console.warn(`[geo-fetcher] ${sourceId}: ${err.message}`);
       return null;
@@ -136,9 +283,53 @@ const GeoFetcher = {
   },
 
   /**
+   * Fetch paginé : charge les features par pages de pageSize, affichage progressif.
+   */
+  async _fetchPaginated(sourceId, spec, meta) {
+    const pageSize = spec.pageSize || 1000;
+    const maxTotal = 20000; // cap mémoire
+    const allFeatures = [];
+    let startIndex = 0;
+    let geojsonBase = null;
+
+    while (startIndex < maxTotal) {
+      const url = this._buildWfsUrl(spec, startIndex, pageSize);
+      const response = await fetch(url);
+      if (!response.ok) break;
+
+      let page = await response.json();
+      if (spec.nativeCrs && spec.nativeCrs !== "EPSG:4326") {
+        page = this._reproject(page, spec.nativeCrs);
+      }
+      if (!page.features || page.features.length === 0) break;
+
+      allFeatures.push(...page.features);
+
+      // Rendu progressif : mettre à jour la source MapLibre
+      const geojson = { type: "FeatureCollection", features: allFeatures };
+      if (!geojsonBase) {
+        GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
+        geojsonBase = true;
+      } else {
+        GeoMap.updateGeoJsonSource(sourceId, geojson);
+      }
+
+      console.log(`[geo-fetcher] ${sourceId}: ${allFeatures.length} features (page ${Math.floor(startIndex / pageSize) + 1})`);
+
+      if (page.features.length < pageSize) break; // dernière page
+      startIndex += pageSize;
+    }
+
+    if (allFeatures.length > 0) {
+      return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields };
+    }
+    return null;
+  },
+
+  /**
    * Construit l'URL WFS GetFeature depuis un LayerSpec.
    */
-  _buildWfsUrl(spec) {
+  _buildWfsUrl(spec, startIndex = 0, count) {
     const params = new URLSearchParams({
       service: "WFS",
       version: "2.0.0",
@@ -146,10 +337,10 @@ const GeoFetcher = {
       typeName: spec.typename,
       outputFormat: "application/json",
       CQL_FILTER: spec.cqlFilter,
-      count: String(spec.maxFeatures || 1000),
+      count: String(count || spec.maxFeatures || 1000),
       srsName: spec.srsName || "EPSG:4326",
     });
-
+    if (startIndex > 0) params.set("startIndex", String(startIndex));
     return `${spec.wfsUrl}?${params.toString()}`;
   },
 

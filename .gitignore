@@ -3,3 +3,6 @@
 /*.log
 /dist/
 /.vscode/
+
+# WikiChat overlay (auto-added)
+.wikichat/

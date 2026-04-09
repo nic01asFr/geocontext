@@ -1,8 +1,10 @@
 /**
  * Panneau contexte — hiérarchie territoriale + thèmes + actions.
  *
- * Écoute les changements de GeoState et met à jour le DOM.
- * Les clics émettent des actions MCP (navigate, action).
+ * Thèmes et actions sont regroupés en accordéon :
+ *   - Clic sur l'en-tête → ouvre/ferme l'accordéon (pas d'appel MCP)
+ *   - Les sous-actions viennent de la resource themes (pas besoin d'appeler action)
+ *   - Clic sur une sous-action → appelle action(sub) directement
  */
 
 const THEME_ICONS = {
@@ -12,11 +14,12 @@ const THEME_ICONS = {
 };
 
 const ContextPanel = {
+  _openThemes: new Set(),
+
   init() {
     GeoState.on("context-changed", (ctx) => this.renderHierarchy(ctx));
     GeoState.on("themes-changed", (themes) => this.renderThemes(themes));
-    GeoState.on("tools-changed", () => this.renderActions());
-    GeoState.on("action-counts-changed", () => this.renderActions());
+    GeoState.on("action-counts-changed", () => this.renderThemes(GeoState.context.themes || []));
   },
 
   // ================================================================
@@ -41,7 +44,7 @@ const ContextPanel = {
       const indent = levels.indexOf(level);
       const isActive = level === ctx.level;
       const cls = `tree-node${isActive ? " active" : ""}`;
-      const style = indent > 0 ? ` style="margin-left:${indent * 16}px"` : "";
+      const style = indent > 0 ? ` style="margin-left:${indent * 14}px"` : "";
 
       html += `
         <div class="${cls}"${style} data-level="${level}" data-code="${entry.code}">
@@ -53,7 +56,6 @@ const ContextPanel = {
 
     el.innerHTML = html;
 
-    // Clics → navigate
     el.querySelectorAll(".tree-node").forEach((node) => {
       node.addEventListener("click", () => {
         const code = node.dataset.code;
@@ -64,102 +66,74 @@ const ContextPanel = {
 
   _levelLabel(level) {
     const labels = {
-      region: "RÉG",
-      departement: "DÉP",
-      epci: "EPCI",
-      commune: "COM",
-      parcelle: "PAR",
-      batiment: "BÂT",
+      region: "RÉG", departement: "DÉP", epci: "EPCI",
+      commune: "COM", parcelle: "PAR", batiment: "BÂT",
     };
     return labels[level] || level.toUpperCase().slice(0, 3);
   },
 
   // ================================================================
-  // Thèmes
+  // Thèmes en accordéon avec actions pré-chargées
   // ================================================================
 
   renderThemes(themes) {
     const el = document.getElementById("themes-list");
-    const ctx = GeoState.context;
+
+    // Masquer la section actions (plus nécessaire, tout est dans l'accordéon)
+    const actionsSection = document.getElementById("actions-section");
+    if (actionsSection) actionsSection.classList.add("hidden");
 
     if (!themes || themes.length === 0) {
       el.innerHTML = "";
       return;
     }
 
-    el.innerHTML = themes
-      .map((t) => {
-        const isActive = ctx.theme === t.id;
-        const icon = THEME_ICONS[t.icon] || t.icon || "📊";
-        return `
-          <button class="theme-btn${isActive ? " active" : ""}" data-theme="${t.id}">
-            <span class="icon">${icon}</span>
-            <span class="label">${t.label}</span>
-          </button>
-        `;
-      })
-      .join("");
+    const ctx = GeoState.context;
+    const counts = GeoState.actionCounts || {};
 
-    // Clics → action(thème)
-    el.querySelectorAll(".theme-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const theme = btn.dataset.theme;
-        GeoState.emit("action-request", theme);
-      });
-    });
-  },
+    el.innerHTML = themes.map((t) => {
+      const isActive = ctx.theme === t.id;
+      const isOpen = this._openThemes.has(t.id) || isActive;
+      const icon = THEME_ICONS[t.icon] || t.icon || "📊";
+      const actions = t.actions || [];
 
-  // ================================================================
-  // Actions (sous-actions du thème actif)
-  // ================================================================
-
-  renderActions() {
-    const section = document.getElementById("actions-section");
-    const el = document.getElementById("actions-list");
-    const titleEl = document.getElementById("actions-title");
-
-    if (!GeoState.context.theme || !GeoState.hasAction()) {
-      section.classList.add("hidden");
-      return;
-    }
-
-    const enums = GeoState.getActionEnums();
-    if (enums.length === 0) {
-      section.classList.add("hidden");
-      return;
-    }
-
-    // Si les enums sont des thèmes, ne pas afficher (déjà dans la section thèmes)
-    const themIds = (GeoState.context.themes || []).map((t) => t.id || t);
-    const isThemeList = enums.every((e) => themIds.includes(e));
-    if (isThemeList) {
-      section.classList.add("hidden");
-      return;
-    }
-
-    const counts = GeoState.actionCounts;
-
-    // Filtrer les actions avec 0 résultats connus
-    const visibleEnums = enums.filter((a) => counts[a] === undefined || counts[a] > 0);
-
-    if (visibleEnums.length === 0) {
-      section.classList.add("hidden");
-      return;
-    }
-
-    section.classList.remove("hidden");
-    titleEl.textContent = `Actions — ${GeoState.context.theme}`;
-
-    el.innerHTML = visibleEnums
-      .map((a) => {
+      const actionsHtml = actions.map((a) => {
         const count = counts[a];
         const badge = count !== undefined
           ? `<span class="action-count">${count}</span>`
           : "";
         return `<button class="action-btn" data-action="${a}">${a}${badge}</button>`;
-      })
-      .join("");
+      }).join("");
 
+      return `
+        <div class="theme-accordion" data-theme-id="${t.id}">
+          <button class="theme-accordion-header${isActive ? " active" : ""}${isOpen ? " open" : ""}"
+                  data-theme="${t.id}">
+            <span class="icon">${icon}</span>
+            <span class="label">${t.label}</span>
+            <span class="chevron">▼</span>
+          </button>
+          <div class="theme-accordion-body${isOpen ? " open" : ""}">
+            ${actionsHtml}
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // Clics sur en-têtes → toggle ouverture (pas d'appel MCP)
+    el.querySelectorAll(".theme-accordion-header").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const themeId = btn.dataset.theme;
+        if (this._openThemes.has(themeId)) {
+          this._openThemes.delete(themeId);
+        } else {
+          this._openThemes.add(themeId);
+        }
+        this.renderThemes(GeoState.context.themes || []);
+      });
+    });
+
+    // Clics sur sous-actions → appel MCP direct
     el.querySelectorAll(".action-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
         GeoState.emit("action-request", btn.dataset.action);

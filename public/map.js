@@ -9,12 +9,45 @@
  */
 
 const BOUNDARY_ID = "_territory_boundary";
+const CTX_LAYER_PREFIX = "_ctx_";
+
+// Niveaux administratifs avec métadonnées d'affichage
+const LEVEL_DEFS = {
+  region:      { label: "RÉG",  color: "#7a8abd" },
+  departement: { label: "DÉP",  color: "#6a9aad" },
+  epci:        { label: "EPCI", color: "#5aadad" },
+  commune:     { label: "COM",  color: "#4aad8a" },
+};
+
+// Niveau enfant pour chaque niveau navigué (basé sur les FK ADMINEXPRESS)
+const CHILD_LEVEL = {
+  region: "departement",     // FK: departement.code_insee_de_la_region
+  departement: "commune",    // FK: commune.code_insee_du_departement
+  epci: "commune",           // FK: commune.codes_siren_des_epci
+  commune: null,
+};
+
+// Fallback zoom-based quand aucun territoire n'est sélectionné
+const ZOOM_TO_LEVEL = [
+  { minZoom: 0,    maxZoom: 6.5,  level: "region" },
+  { minZoom: 6.5,  maxZoom: 8.5,  level: "departement" },
+  { minZoom: 8.5,  maxZoom: 10.5, level: "epci" },
+  { minZoom: 10.5, maxZoom: 25,   level: "commune" },
+];
+
+function zoomToAdminLevel(zoom) {
+  const entry = ZOOM_TO_LEVEL.find(z => zoom >= z.minZoom && zoom < z.maxZoom) || ZOOM_TO_LEVEL[3];
+  return { ...LEVEL_DEFS[entry.level], level: entry.level };
+}
 
 const GeoMap = {
   map: null,
   _layerIds: new Set(),      // Couches thématiques (hors limite territoire)
   _layerMeta: new Map(),     // sourceId → { label, primaryFields, theme }
   _popup: null,
+  _ctxLayerIds: new Set(),   // Couches de contexte admin (cliquables selon zoom)
+  _ctxCurrentLevel: null,    // Niveau admin actuellement affiché
+  _ctxDebounce: null,        // Timer debounce moveend/zoomend
 
   /** Initialise la carte MapLibre. */
   init() {
@@ -22,31 +55,29 @@ const GeoMap = {
       container: "map",
       style: {
         version: 8,
-        name: "IGN Plan v2",
+        name: "OSM Light",
         sources: {
-          "ign-plan": {
+          "osm-light": {
             type: "raster",
             tiles: [
-              "https://data.geopf.fr/wmts?" +
-              "SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0" +
-              "&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2" +
-              "&STYLE=normal&TILEMATRIXSET=PM" +
-              "&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}" +
-              "&FORMAT=image/png",
+              "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+              "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+              "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
             ],
             tileSize: 256,
-            attribution: "&copy; IGN",
+            attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OSM</a> &copy; <a href='https://carto.com/'>CARTO</a>",
             maxzoom: 19,
           },
         },
         layers: [
           {
-            id: "ign-plan-layer",
+            id: "osm-light-layer",
             type: "raster",
-            source: "ign-plan",
-            paint: { "raster-opacity": 0.85 },
+            source: "osm-light",
+            paint: { "raster-opacity": 0.9 },
           },
         ],
+        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
       },
       center: [2.5, 46.8],
       zoom: 5.5,
@@ -68,24 +99,50 @@ const GeoMap = {
       "bottom-left",
     );
 
-    // Clic : feature → popup, fond carte → navigate
+    // Clic : context admin entity → entity card | feature thématique → popup | fond → navigate
     this.map.on("click", (e) => {
-      const hit = this._getTopFeature(e.point);
-      if (hit) {
-        const meta = this._layerMeta.get(hit.sourceId) || {};
-        const html = GeoStyles.popupHtml(meta.label, hit.feature.properties || {}, meta.primaryFields);
+      // 1. Feature thématique ?
+      const thematicHit = this._getTopFeature(e.point);
+      if (thematicHit) {
+        const meta = this._layerMeta.get(thematicHit.sourceId) || {};
+        const html = GeoStyles.popupHtml(meta.label, thematicHit.feature.properties || {}, meta.primaryFields);
         this._popup.setLngLat(e.lngLat).setHTML(html).addTo(this.map);
-        GeoState.emit("feature-click", { feature: hit.feature, meta });
-      } else {
-        this._popup.remove();
-        GeoState.emit("map-click", { lon: e.lngLat.lng, lat: e.lngLat.lat });
+        GeoState.emit("feature-click", { feature: thematicHit.feature, meta });
+        return;
       }
+      // 2. Entité admin de la couche de contexte ?
+      const ctxHit = this._getContextFeature(e.point);
+      if (ctxHit) {
+        this._popup.remove();
+        this._showEntityCard(e.lngLat, ctxHit.feature, ctxHit.levelDef);
+        return;
+      }
+      // 3. Fond de carte → navigate par coordonnées
+      this._popup.remove();
+      GeoState.emit("map-click", { lon: e.lngLat.lng, lat: e.lngLat.lat });
     });
 
     // Curseur pointer sur les couches interactives
     this.map.on("mousemove", (e) => {
-      const hit = this._getTopFeature(e.point);
-      this.map.getCanvas().style.cursor = hit ? "pointer" : "";
+      const thematic = this._getTopFeature(e.point);
+      const ctx = !thematic && this._getContextFeature(e.point);
+      this.map.getCanvas().style.cursor = (thematic || ctx) ? "pointer" : "";
+      // Hover highlight couche contexte
+      this._hoverContextFeature(ctx ? ctx.feature : null);
+    });
+
+    // Charger la couche de contexte au démarrage et sur zoom/move
+    // En mode navigation, le zoom/move ne recharge PAS la couche (enfants fixes)
+    this.map.on("load", () => this._updateContextLayer());
+    this.map.on("zoomend", () => {
+      if (this._navContext) return; // navigation active → pas de reload auto
+      clearTimeout(this._ctxDebounce);
+      this._ctxDebounce = setTimeout(() => this._updateContextLayer(), 350);
+    });
+    this.map.on("moveend", () => {
+      if (this._navContext) return; // navigation active → pas de reload auto
+      clearTimeout(this._ctxDebounce);
+      this._ctxDebounce = setTimeout(() => this._updateContextLayer(), 500);
     });
 
     // Écouter les changements de contexte
@@ -285,6 +342,16 @@ const GeoMap = {
   },
 
   /**
+   * Met à jour les données d'une source GeoJSON existante (rendu progressif).
+   */
+  updateGeoJsonSource(id, geojson) {
+    if (!this.map) return;
+    const sourceId = `src-${id}`;
+    const source = this.map.getSource(sourceId);
+    if (source) source.setData(geojson);
+  },
+
+  /**
    * Supprime une couche thématique et sa source.
    */
   removeLayer(id) {
@@ -310,11 +377,15 @@ const GeoMap = {
     this._layerIds.clear();
     this._layerMeta.clear();
     this._popup.remove();
-    // Supprimer les sources src-* sauf la limite territoire
+    // Supprimer les sources src-* sauf la limite territoire et les couches contexte
     const style = this.map.getStyle();
     if (style?.sources) {
       for (const sid of Object.keys(style.sources)) {
-        if (sid.startsWith("src-") && sid !== `src-${BOUNDARY_ID}`) {
+        if (
+          sid.startsWith("src-") &&
+          sid !== `src-${BOUNDARY_ID}` &&
+          !sid.startsWith(`src-${CTX_LAYER_PREFIX}`)
+        ) {
           if (this.map.getSource(sid)) this.map.removeSource(sid);
         }
       }
@@ -332,6 +403,199 @@ const GeoMap = {
         this.map.setLayoutProperty(lid, "visibility", visibility);
       }
     }
+  },
+
+  // ================================================================
+  // Couche de contexte admin — suit le niveau navigué
+  // ================================================================
+
+  _navContext: null,  // { level, code, hierarchy }
+
+  /** Réinitialise la couche contexte (retour à l'état initial). */
+  resetContextLayer() {
+    this._navContext = null;
+    this._ctxCurrentLevel = null;
+    this._updateContextLayer();
+  },
+
+  /**
+   * Met à jour le contexte de navigation — affiche les entités enfants de l'entité courante.
+   * Ex: navigué sur département → affiche les EPCI du département
+   */
+  setNavigationContext(ctx) {
+    this._navContext = ctx;
+    // Toujours supprimer l'ancienne couche contexte avant de charger la nouvelle
+    this.clearContextLayer();
+    this._ctxCurrentLevel = null;
+    this._updateContextLayer();
+  },
+
+  /** Déclenche la mise à jour de la couche de contexte. */
+  _updateContextLayer() {
+    const b = this.map.getBounds();
+    const bbox = [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+
+    // Mode navigation : afficher les enfants de l'entité courante
+    if (this._navContext?.level) {
+      const childLevel = CHILD_LEVEL[this._navContext.level];
+      if (!childLevel) {
+        // Pas d'enfants (commune) → masquer la couche contexte
+        this.clearContextLayer();
+        this._ctxCurrentLevel = null;
+        return;
+      }
+      if (childLevel === this._ctxCurrentLevel) return; // déjà affiché
+      this._ctxCurrentLevel = childLevel;
+      GeoState.emit("context-layer-update", {
+        level: childLevel,
+        bbox,
+        // Filtre pour ne charger que les enfants de l'entité courante
+        parent: this._navContext,
+      });
+      return;
+    }
+
+    // Mode initial (pas de navigation) : zoom-based
+    const zoom = this.map.getZoom();
+    const levelDef = zoomToAdminLevel(zoom);
+    if (levelDef.level === this._ctxCurrentLevel && this._ctxCurrentLevel !== null) return;
+    this._ctxCurrentLevel = levelDef.level;
+    GeoState.emit("context-layer-update", { level: levelDef.level, bbox });
+  },
+
+  /** Ajoute la couche de contexte (ADMINEXPRESS polygones) sur la carte. */
+  addContextLayer(id, geojson, levelDef) {
+    if (!this.map) return;
+    if (!this.map.isStyleLoaded()) {
+      // Defer jusqu'à ce que le style soit prêt
+      this.map.once("idle", () => this.addContextLayer(id, geojson, levelDef));
+      return;
+    }
+    this.clearContextLayer();
+    if (!geojson.features || geojson.features.length === 0) return;
+
+    const sourceId = `src-${id}`;
+    this.map.addSource(sourceId, {
+      type: "geojson",
+      data: geojson,
+      tolerance: 1.5,  // simplifier les géométries complexes (régions)
+      buffer: 128,     // buffer de tuile élargi pour éviter les coupures
+    });
+
+    this.map.addLayer({
+      id: `${id}-fill`,
+      type: "fill",
+      source: sourceId,
+      paint: {
+        "fill-color": levelDef.color,
+        "fill-opacity": ["case", ["boolean", ["feature-state", "hover"], false], 0.25, 0.10],
+      },
+    });
+    this.map.addLayer({
+      id: `${id}-line`,
+      type: "line",
+      source: sourceId,
+      paint: {
+        "line-color": levelDef.color,
+        "line-width": 1.2,
+        "line-opacity": 0.5,
+      },
+    });
+    this._ctxLayerIds.add(`${id}-fill`);
+    this._ctxLayerIds.add(`${id}-line`);
+    this._ctxSourceId = sourceId;
+    this._ctxLayerId = `${id}-fill`;
+  },
+
+  /** Supprime la couche de contexte actuelle. */
+  clearContextLayer() {
+    if (!this.map) return;
+    for (const lid of [...this._ctxLayerIds]) {
+      if (this.map.getLayer(lid)) this.map.removeLayer(lid);
+    }
+    this._ctxLayerIds.clear();
+    if (this._ctxSourceId && this.map.getSource(this._ctxSourceId)) {
+      this.map.removeSource(this._ctxSourceId);
+    }
+    this._ctxSourceId = null;
+    this._ctxLayerId = null;
+    this._ctxHoveredId = null;
+  },
+
+  /** Retourne la feature de contexte sous le point de clic. */
+  _getContextFeature(point) {
+    if (this._ctxLayerIds.size === 0) return null;
+    // Requêter les layers fill ET line pour couvrir les frontières
+    const allLayers = [...this._ctxLayerIds]
+      .filter(lid => this.map.getLayer(lid));
+    if (allLayers.length === 0) return null;
+
+    // D'abord essayer un point précis, puis élargir avec une bbox de tolérance
+    let features = this.map.queryRenderedFeatures(point, { layers: allLayers });
+    if (!features || features.length === 0) {
+      // Tolérance de 5px pour capter les features proches
+      const bbox = [[point.x - 5, point.y - 5], [point.x + 5, point.y + 5]];
+      features = this.map.queryRenderedFeatures(bbox, { layers: allLayers });
+    }
+    if (!features || features.length === 0) return null;
+
+    // Privilégier les features du fill (plus fiables pour l'identité)
+    const fillFeature = features.find(f => f.layer.id.endsWith("-fill"));
+    const best = fillFeature || features[0];
+
+    // Le levelDef correspond au niveau de la couche contexte actuellement affichée
+    const level = this._ctxCurrentLevel || zoomToAdminLevel(this.map.getZoom()).level;
+    const levelDef = { ...LEVEL_DEFS[level], level };
+    return { feature: best, levelDef };
+  },
+
+  /** Hover highlight d'une feature de contexte (feature state). */
+  _hoverContextFeature(feature) {
+    if (!this._ctxSourceId || !this.map.getSource(this._ctxSourceId)) return;
+    if (this._ctxHoveredId !== undefined && this._ctxHoveredId !== null) {
+      this.map.setFeatureState(
+        { source: this._ctxSourceId, id: this._ctxHoveredId },
+        { hover: false },
+      );
+    }
+    this._ctxHoveredId = feature ? feature.id : null;
+    if (feature && feature.id !== undefined) {
+      this.map.setFeatureState(
+        { source: this._ctxSourceId, id: feature.id },
+        { hover: true },
+      );
+    }
+  },
+
+  /** Affiche la carte d'entité administrative (vue synthétique). */
+  _showEntityCard(lngLat, feature, levelDef) {
+    const props = feature.properties || {};
+    const name = props.nom_officiel || props.nom || "?";
+    const code = props.code_insee || props.code_siren || "";
+    const labelColor = levelDef.color;
+
+    const html = `<div class="entity-card">
+      <div class="ec-level" style="background:${labelColor}">${levelDef.label}</div>
+      <div class="ec-name">${name}</div>
+      ${code ? `<div class="ec-code">${code}</div>` : ""}
+      <button class="ec-navigate" data-code="${code || name}">→ Naviguer</button>
+    </div>`;
+
+    const popup = new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      maxWidth: "240px",
+      className: "geocontext-popup entity-popup",
+    })
+      .setLngLat(lngLat)
+      .setHTML(html)
+      .addTo(this.map);
+
+    // Bouton naviguer — passer le niveau + code pour une résolution non ambiguë
+    popup.getElement().querySelector(".ec-navigate")?.addEventListener("click", () => {
+      popup.remove();
+      GeoState.emit("navigate-request", { code, name, level: levelDef.level });
+    });
   },
 
   /** Met à jour le badge territoire sur la carte. */

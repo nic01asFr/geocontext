@@ -21,6 +21,11 @@
   ContextPanel.init();
   DataPanel.init();
 
+  // Couche de contexte admin — suit le niveau navigué
+  GeoState.on("context-layer-update", ({ level, bbox, parent }) => {
+    GeoFetcher.loadContextLayer(level, bbox, parent);
+  });
+
   // ================================================================
   // 2. Connexion MCP
   // ================================================================
@@ -83,6 +88,8 @@
     try {
       GeoMap.clearLayers();
       GeoMap.clearBoundary();
+      // Marquer comme "en navigation" pour bloquer le reload zoom-based
+      GeoMap._navContext = { _navigating: true };
       GeoState.resetActionCounts();
       DataPanel.hide();
 
@@ -92,10 +99,14 @@
 
       await GeoState.refreshAll(client);
 
-      // Charger le contour du territoire
+      // Charger le contour du territoire + couche contexte enfants
       const ctx = GeoState.context;
       if (ctx.level && ctx.code) {
-        GeoFetcher.loadTerritoryBoundary(ctx); // async, pas bloquant
+        GeoFetcher.loadTerritoryBoundary(ctx);
+        GeoMap.setNavigationContext(ctx);
+      } else {
+        // Navigation échouée → retour au mode zoom-based
+        GeoMap.resetContextLayer();
       }
     } catch (e) {
       Chat.addMessage("system", `Erreur : ${e.message}`);
@@ -137,9 +148,13 @@
     if (idx !== undefined) GeoState.emit("feature-hover", idx);
   });
 
-  // Clic hiérarchie → navigate
-  GeoState.on("navigate-request", async (code) => {
-    await doNavigate(code);
+  // Clic hiérarchie ou entité carte → navigate
+  GeoState.on("navigate-request", async (target) => {
+    if (typeof target === "object" && target.level && target.code) {
+      await doNavigate(`${target.level}:${target.code}`);
+    } else {
+      await doNavigate(target);
+    }
   });
 
   // Clic thème/action → effacer les couches thématiques, charger les nouvelles
@@ -158,16 +173,23 @@
 
       const specs = GeoFetcher.extractLayerSpecs(result);
       if (specs) {
-        const total = Object.values(specs).reduce((s, sp) => s + (sp.featureCount || 0), 0);
-        GeoState.setActionCount(action, total);
-
         const layers = await GeoFetcher.loadLayers(specs);
 
-        // Afficher le détail des features dans le DataPanel
+        // Compteur = features réellement chargées
         if (layers && layers.length > 0) {
           const allFeatures = layers.flatMap(l => l.features || []);
+          GeoState.setActionCount(action, allFeatures.length);
           if (allFeatures.length > 0) {
-            DataPanel.render(action, text, allFeatures);
+            // Récupérer les meta du premier layerSpec (filtres, champs)
+            const firstSpecKey = Object.keys(specs)[0];
+            const firstSpec = specs[firstSpecKey];
+            const meta = {
+              sourceId: firstSpecKey,
+              filters: firstSpec?.filters || [],
+              fields: firstSpec?.fields || [],
+              primaryFields: firstSpec?.primaryFields || [],
+            };
+            DataPanel.render(action, text, allFeatures, meta);
           }
         }
       }
