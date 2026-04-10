@@ -408,7 +408,8 @@ const DataPanel = {
 
   _buildStats(features, fields) {
     const cards = [];
-    cards.push(`<div class="stat-card"><div class="value">${features.length.toLocaleString("fr-FR")}</div><div class="label">éléments</div></div>`);
+    const total = features.length;
+    cards.push(`<div class="stat-card"><div class="value">${total.toLocaleString("fr-FR")}</div><div class="label">éléments</div></div>`);
 
     // Stats numériques sur les champs primary avec unit
     for (const f of fields) {
@@ -424,21 +425,32 @@ const DataPanel = {
       }
     }
 
-    // Distribution pour les champs enum primary
-    const filters = this._meta.filters || [];
-    for (const fl of filters) {
-      if (fl.type === "enum" && fl.values) {
-        const dist = {};
-        for (const ft of features) {
-          const v = (ft.properties || ft)[fl.key];
-          if (v != null) dist[v] = (dist[v] || 0) + 1;
-        }
-        const top = Object.entries(dist).sort((a, b) => b[1] - a[1]).slice(0, 4);
-        if (top.length > 0) {
-          const distHtml = top.map(([k, c]) => `${fl.values[k] || k}: ${c}`).join(", ");
-          cards.push(`<div class="stat-card" style="grid-column:span 2"><div class="value" style="font-size:13px">${distHtml}</div><div class="label">${fl.label}</div></div>`);
-        }
-      }
+    // Distribution visuelle pour les champs enum (barres proportionnelles)
+    const analysis = this._colAnalysis || {};
+    for (const f of fields) {
+      const col = analysis[f.key];
+      if (!col || col.type !== "enum" || col.values.length <= 1 || col.values.length > 12) continue;
+      // Ne montrer que pour les champs intéressants (primary ou peu de valeurs)
+      if (!f.primary && col.values.length > 6) continue;
+
+      const sorted = col.values.map((v) => ({ value: v, count: col.counts[v] || 0 }));
+      const maxCount = Math.max(...sorted.map((s) => s.count));
+
+      const barsHtml = sorted.slice(0, 8).map((s) => {
+        const pct = Math.round((s.count / total) * 100);
+        const barW = Math.max(4, Math.round((s.count / maxCount) * 100));
+        const label = s.value.length > 18 ? s.value.slice(0, 16) + "…" : s.value;
+        return `<div class="dist-row">
+          <span class="dist-label" title="${s.value}">${label}</span>
+          <div class="dist-bar-bg"><div class="dist-bar" style="width:${barW}%"></div></div>
+          <span class="dist-count">${s.count} <small>(${pct}%)</small></span>
+        </div>`;
+      }).join("");
+
+      cards.push(`<div class="stat-card stat-dist" style="grid-column:span 2">
+        <div class="label" style="margin-bottom:6px">${f.label || f.key}</div>
+        ${barsHtml}
+      </div>`);
     }
 
     return `<div class="stat-grid">${cards.join("")}</div>`;

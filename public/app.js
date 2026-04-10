@@ -1,11 +1,10 @@
 /**
  * App — point d'entrée de l'interface web geocontext.
  *
- * Flux :
- *   navigate → contour territoire + carte de contexte
- *   action   → efface les anciennes couches thématiques → carte thématique
- *   clic feature → popup (pas de navigate)
- *   clic fond carte → navigate par coordonnées
+ * Architecture :
+ *   - Navigation (panel, carte, search) → appels MCP directs, résultats dans l'UI
+ *   - Chat = assistant optionnel, découplé de la navigation
+ *   - Les commandes MCP sont invisibles pour l'utilisateur
  */
 
 (async function () {
@@ -31,7 +30,9 @@
   // ================================================================
 
   const client = new McpClient("/mcp");
-  Chat.init(client);
+
+  // Exposer le client pour le chat (qui en a besoin séparément)
+  window._mcpClient = client;
 
   statusEl.className = "status loading";
   statusEl.title = "Connexion…";
@@ -40,12 +41,11 @@
     await client.initialize();
     statusEl.className = "status online";
     statusEl.title = "Connecté";
-    Chat.addMessage("system", "Connecté au serveur geocontext.");
     await GeoState.refreshAll(client);
+    Chat.init(client);
   } catch (e) {
     statusEl.className = "status offline";
     statusEl.title = `Erreur : ${e.message}`;
-    Chat.addMessage("system", `Connexion impossible : ${e.message}`);
     console.error("[app] Connexion MCP échouée:", e);
   }
 
@@ -69,34 +69,26 @@
         return true;
       })
       .map((c) => c.text)
-      .join("\n");
+      .join("\n")
+      .replace(/\n?🗺.*?http:\/\/localhost:\d+\s*/g, "")
+      .trim();
   }
 
-  async function processLayerSpecs(result) {
-    const specs = GeoFetcher.extractLayerSpecs(result);
-    if (specs) await GeoFetcher.loadLayers(specs);
-  }
+  // ================================================================
+  // 4. Navigation — autonome, sans passer par le chat
+  // ================================================================
 
-  /**
-   * Navigate vers un territoire :
-   *   1. Effacer toutes les couches (thématiques + boundary)
-   *   2. Appeler navigate
-   *   3. Charger le contour du nouveau territoire
-   */
   async function doNavigate(target) {
     statusEl.className = "status loading";
     try {
       GeoMap.clearLayers();
       GeoMap.clearBoundary();
-      // Marquer comme "en navigation" pour bloquer le reload zoom-based
       GeoMap._navContext = { _navigating: true };
       GeoState.resetActionCounts();
       DataPanel.hide();
+      ContextPanel.setLoading(true);
 
       const result = await client.callTool("navigate", { target });
-      const msg = extractText(result);
-      if (msg) Chat.addMessage("assistant", msg);
-
       await GeoState.refreshAll(client);
 
       // Charger le contour du territoire + couche contexte enfants
@@ -105,18 +97,68 @@
         GeoFetcher.loadTerritoryBoundary(ctx);
         GeoMap.setNavigationContext(ctx);
       } else {
-        // Navigation échouée → retour au mode zoom-based
         GeoMap.resetContextLayer();
       }
     } catch (e) {
-      Chat.addMessage("system", `Erreur : ${e.message}`);
+      console.error("[app] navigate:", e);
     } finally {
       statusEl.className = "status online";
+      ContextPanel.setLoading(false);
+    }
+  }
+
+  /**
+   * Exécute une action thématique — autonome, résultats dans carte + data-panel.
+   */
+  async function doAction(action) {
+    statusEl.className = "status loading";
+    GeoMap.clearLayers();
+    DataPanel.showLoading(action);
+    ContextPanel.setActionLoading(action, true);
+
+    try {
+      const result = await client.callTool("action", { action });
+      const text = extractText(result);
+
+      const specs = GeoFetcher.extractLayerSpecs(result);
+      if (specs) {
+        const layers = await GeoFetcher.loadLayers(specs);
+
+        if (layers && layers.length > 0) {
+          const allFeatures = layers.flatMap((l) => l.features || []);
+          GeoState.setActionCount(action, allFeatures.length);
+          if (allFeatures.length > 0) {
+            const firstSpecKey = Object.keys(specs)[0];
+            const firstSpec = specs[firstSpecKey];
+            const meta = {
+              sourceId: firstSpecKey,
+              filters: firstSpec?.filters || [],
+              fields: firstSpec?.fields || [],
+              primaryFields: firstSpec?.primaryFields || [],
+            };
+            DataPanel.render(action, text, allFeatures, meta);
+          } else {
+            DataPanel.render(action, text);
+          }
+        } else {
+          DataPanel.render(action, text);
+        }
+      } else {
+        DataPanel.render(action, text);
+      }
+
+      await GeoState.refreshAll(client);
+    } catch (e) {
+      console.error("[app] action:", e);
+      DataPanel.hide();
+    } finally {
+      statusEl.className = "status online";
+      ContextPanel.setActionLoading(action, false);
     }
   }
 
   // ================================================================
-  // 4. Recherche (barre supérieure)
+  // 5. Recherche (barre supérieure)
   // ================================================================
 
   async function doSearch() {
@@ -132,7 +174,7 @@
   });
 
   // ================================================================
-  // 5. Événements émis par les composants
+  // 6. Événements émis par les composants
   // ================================================================
 
   // Clic fond carte → navigate
@@ -140,66 +182,25 @@
     await doNavigate(`${lon.toFixed(5)},${lat.toFixed(5)}`);
   });
 
-  // Clic feature → le popup est géré dans map.js, on peut aussi
-  // mettre en évidence la ligne dans le data-panel si disponible
-  GeoState.on("feature-click", ({ feature, meta }) => {
-    // Highlight optionnel dans le DataPanel (si la feature a un index)
+  // Clic feature → highlight data-panel
+  GeoState.on("feature-click", ({ feature }) => {
     const idx = feature.id;
     if (idx !== undefined) GeoState.emit("feature-hover", idx);
   });
 
   // Clic hiérarchie ou entité carte → navigate
   GeoState.on("navigate-request", async (target) => {
-    if (typeof target === "object" && target.level && target.code) {
-      await doNavigate(`${target.level}:${target.code}`);
+    if (typeof target === "object" && target.code) {
+      await doNavigate(target.code);
     } else {
       await doNavigate(target);
     }
   });
 
-  // Clic thème/action → effacer les couches thématiques, charger les nouvelles
-  GeoState.on("action-request", async (action) => {
-    statusEl.className = "status loading";
-    // Effacer les couches thématiques (pas la limite territoire)
-    GeoMap.clearLayers();
-    DataPanel.showLoading(action);
-    try {
-      const result = await client.callTool("action", { action });
-      const text = extractText(result);
-      if (text) {
-        Chat.addMessage("assistant", text);
-        DataPanel.render(action, text);
-      }
-
-      const specs = GeoFetcher.extractLayerSpecs(result);
-      if (specs) {
-        const layers = await GeoFetcher.loadLayers(specs);
-
-        // Compteur = features réellement chargées
-        if (layers && layers.length > 0) {
-          const allFeatures = layers.flatMap(l => l.features || []);
-          GeoState.setActionCount(action, allFeatures.length);
-          if (allFeatures.length > 0) {
-            // Récupérer les meta du premier layerSpec (filtres, champs)
-            const firstSpecKey = Object.keys(specs)[0];
-            const firstSpec = specs[firstSpecKey];
-            const meta = {
-              sourceId: firstSpecKey,
-              filters: firstSpec?.filters || [],
-              fields: firstSpec?.fields || [],
-              primaryFields: firstSpec?.primaryFields || [],
-            };
-            DataPanel.render(action, text, allFeatures, meta);
-          }
-        }
-      }
-
-      await GeoState.refreshAll(client);
-    } catch (e) {
-      Chat.addMessage("system", `Erreur : ${e.message}`);
-      DataPanel.hide();
-    } finally {
-      statusEl.className = "status online";
-    }
+  // Clic thème/action → charger les données sur la carte
+  // Le serveur résout implicitement le thème parent si nécessaire
+  GeoState.on("action-request", async (payload) => {
+    const action = (typeof payload === "object" && payload.action) ? payload.action : payload;
+    await doAction(action);
   });
 })();

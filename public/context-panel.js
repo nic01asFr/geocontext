@@ -1,10 +1,12 @@
 /**
  * Panneau contexte — hiérarchie territoriale + thèmes + actions.
  *
- * Thèmes et actions sont regroupés en accordéon :
- *   - Clic sur l'en-tête → ouvre/ferme l'accordéon (pas d'appel MCP)
- *   - Les sous-actions viennent de la resource themes (pas besoin d'appeler action)
- *   - Clic sur une sous-action → appelle action(sub) directement
+ * Interactions :
+ *   - Clic en-tête thème → charge le thème (action MCP) + ouvre l'accordéon
+ *   - Clic sous-action  → charge l'action (action MCP)
+ *   - Clic hiérarchie   → navigate vers le territoire
+ *
+ * Les résultats sont rendus sur la carte + data-panel, jamais dans le chat.
  */
 
 const THEME_ICONS = {
@@ -15,11 +17,29 @@ const THEME_ICONS = {
 
 const ContextPanel = {
   _openThemes: new Set(),
+  _loadingAction: null,
 
   init() {
     GeoState.on("context-changed", (ctx) => this.renderHierarchy(ctx));
     GeoState.on("themes-changed", (themes) => this.renderThemes(themes));
     GeoState.on("action-counts-changed", () => this.renderThemes(GeoState.context.themes || []));
+  },
+
+  /** Affiche/masque un spinner global sur le panel. */
+  setLoading(loading) {
+    const el = document.getElementById("panel-context");
+    if (loading) {
+      el.classList.add("is-loading");
+    } else {
+      el.classList.remove("is-loading");
+    }
+  },
+
+  /** Marque un bouton d'action comme en chargement. */
+  setActionLoading(action, loading) {
+    this._loadingAction = loading ? action : null;
+    // Re-render pour mettre à jour les visuels
+    this.renderThemes(GeoState.context.themes || []);
   },
 
   // ================================================================
@@ -49,7 +69,7 @@ const ContextPanel = {
       html += `
         <div class="${cls}"${style} data-level="${level}" data-code="${entry.code}">
           <span class="level-tag">${this._levelLabel(level)}</span>
-          <span>${entry.name || entry.code}</span>
+          <span class="tree-name">${entry.name || entry.code}</span>
         </div>
       `;
     }
@@ -73,13 +93,11 @@ const ContextPanel = {
   },
 
   // ================================================================
-  // Thèmes en accordéon avec actions pré-chargées
+  // Thèmes en accordéon
   // ================================================================
 
   renderThemes(themes) {
     const el = document.getElementById("themes-list");
-
-    // Masquer la section actions (plus nécessaire, tout est dans l'accordéon)
     const actionsSection = document.getElementById("actions-section");
     if (actionsSection) actionsSection.classList.add("hidden");
 
@@ -99,43 +117,59 @@ const ContextPanel = {
 
       const actionsHtml = actions.map((a) => {
         const count = counts[a];
-        const badge = count !== undefined
-          ? `<span class="action-count">${count}</span>`
-          : "";
-        return `<button class="action-btn" data-action="${a}">${a}${badge}</button>`;
+        const isLoading = this._loadingAction === a;
+        const badge = isLoading
+          ? '<span class="action-spinner"></span>'
+          : count !== undefined
+            ? `<span class="action-count">${count}</span>`
+            : "";
+        const cls = `action-btn${isLoading ? " loading" : ""}`;
+        return `<button class="${cls}" data-action="${a}">${a}${badge}</button>`;
       }).join("");
 
       return `
-        <div class="theme-accordion" data-theme-id="${t.id}">
+        <div class="theme-accordion${isActive ? " active-theme" : ""}" data-theme-id="${t.id}">
           <button class="theme-accordion-header${isActive ? " active" : ""}${isOpen ? " open" : ""}"
                   data-theme="${t.id}">
             <span class="icon">${icon}</span>
             <span class="label">${t.label}</span>
-            <span class="chevron">▼</span>
+            <span class="chevron">${isOpen ? "▲" : "▼"}</span>
           </button>
           <div class="theme-accordion-body${isOpen ? " open" : ""}">
-            ${actionsHtml}
+            ${actionsHtml || '<span class="placeholder">Chargement…</span>'}
           </div>
         </div>
       `;
     }).join("");
 
-    // Clics sur en-têtes → toggle ouverture (pas d'appel MCP)
+    // Clics en-tête de thème → charge le thème via action MCP
     el.querySelectorAll(".theme-accordion-header").forEach((btn) => {
       btn.addEventListener("click", () => {
         const themeId = btn.dataset.theme;
-        if (this._openThemes.has(themeId)) {
+        const isCurrentlyOpen = this._openThemes.has(themeId);
+        const isActive = ctx.theme === themeId;
+
+        if (isCurrentlyOpen && isActive) {
+          // Fermer si déjà actif et ouvert
           this._openThemes.delete(themeId);
+          this.renderThemes(GeoState.context.themes || []);
         } else {
+          // Ouvrir et charger le thème
           this._openThemes.add(themeId);
+          if (!isActive) {
+            // Déclencher le chargement du thème
+            GeoState.emit("action-request", themeId);
+          } else {
+            this.renderThemes(GeoState.context.themes || []);
+          }
         }
-        this.renderThemes(GeoState.context.themes || []);
       });
     });
 
-    // Clics sur sous-actions → appel MCP direct
+    // Clics sous-actions → charger l'action (le serveur résout le thème implicitement)
     el.querySelectorAll(".action-btn").forEach((btn) => {
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
         GeoState.emit("action-request", btn.dataset.action);
       });
     });

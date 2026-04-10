@@ -72,10 +72,18 @@ const GeoFetcher = {
       this._fetchAndDisplay(sourceId, spec),
     );
     const results = await Promise.allSettled(promises);
-    // Retourner les layers chargés avec succès (pour DataPanel)
-    return results
+    const loaded = results
       .map(r => r.status === "fulfilled" ? r.value : null)
       .filter(Boolean);
+
+    // Mettre à jour la légende avec les compteurs réels (toutes les features)
+    for (const layer of loaded) {
+      if (layer?.features?.length > 0 && layer.styleRecipe?.classification) {
+        GeoMap.updateLegendCounts(layer.features, layer.styleRecipe.classification);
+      }
+    }
+
+    return loaded;
   },
 
   /**
@@ -209,17 +217,19 @@ const GeoFetcher = {
    */
   async _fetchAndDisplay(sourceId, spec) {
     try {
+      const styleRecipe = spec.styleRecipe || null;
       const meta = {
         label: spec.label || sourceId,
         primaryFields: spec.primaryFields || [],
         theme: spec.theme || null,
+        styleRecipe,
       };
 
       if (spec.type === "inline") {
         const geojson = spec.inlineGeojson;
         if (geojson?.features?.length > 0) {
           GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
-          return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields };
+          return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields, styleRecipe };
         }
         return null;
       }
@@ -250,11 +260,10 @@ const GeoFetcher = {
         GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
         console.log(`[geo-fetcher] ${sourceId}: ${geojson.features.length} features (page 1, auto-paginating...)`);
 
-        // Charger les pages suivantes
+        // Charger les pages suivantes — pas de cap artificiel
         const allFeatures = [...geojson.features];
-        const maxTotal = 20000;
         let startIndex = pageSize;
-        while (startIndex < maxTotal) {
+        while (true) {
           const pageUrl = this._buildWfsUrl(spec, startIndex, pageSize);
           const pageRes = await fetch(pageUrl);
           if (!pageRes.ok) break;
@@ -269,13 +278,13 @@ const GeoFetcher = {
           if (page.features.length < pageSize) break;
           startIndex += pageSize;
         }
-        return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields };
+        return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields, styleRecipe };
       }
 
       // Single page — toutes les features tiennent dans une page
       GeoMap.addGeoJsonLayer(sourceId, geojson, spec.style || {}, meta);
       console.log(`[geo-fetcher] ${sourceId}: ${geojson.features.length} features chargées`);
-      return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields };
+      return { sourceId, label: meta.label, features: geojson.features, primaryFields: meta.primaryFields, styleRecipe };
     } catch (err) {
       console.warn(`[geo-fetcher] ${sourceId}: ${err.message}`);
       return null;
@@ -287,12 +296,11 @@ const GeoFetcher = {
    */
   async _fetchPaginated(sourceId, spec, meta) {
     const pageSize = spec.pageSize || 1000;
-    const maxTotal = 20000; // cap mémoire
     const allFeatures = [];
     let startIndex = 0;
     let geojsonBase = null;
 
-    while (startIndex < maxTotal) {
+    while (true) {
       const url = this._buildWfsUrl(spec, startIndex, pageSize);
       const response = await fetch(url);
       if (!response.ok) break;
@@ -321,7 +329,7 @@ const GeoFetcher = {
     }
 
     if (allFeatures.length > 0) {
-      return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields };
+      return { sourceId, label: meta.label, features: allFeatures, primaryFields: meta.primaryFields, styleRecipe: meta.styleRecipe };
     }
     return null;
   },

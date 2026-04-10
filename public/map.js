@@ -223,20 +223,41 @@ const GeoMap = {
 
     const features = geojson.features || [];
     const geomType = features[0]?.geometry?.type || "Point";
-    const theme = meta.theme || style.theme;
+    const recipe = meta.styleRecipe;
 
-    // Résoudre le style :
-    //   1. Palette thématique (GeoStyles) — couleurs par thème
-    //   2. Écrasé par le displayStyle explicite de la source (si non vide)
+    // ── Mode styleRecipe : paint natif MapLibre ──
+    if (recipe && recipe.paint) {
+      const gt = recipe.geometryType || (geomType.includes("Polygon") ? "polygon" : geomType.includes("Line") ? "line" : "point");
+
+      if (gt === "point") {
+        this.map.addLayer({ id, type: "circle", source: sourceId, paint: recipe.paint });
+        this._layerIds.add(id);
+      } else if (gt === "polygon") {
+        this.map.addLayer({ id: `${id}-fill`, type: "fill", source: sourceId, paint: recipe.paint });
+        this.map.addLayer({ id: `${id}-line`, type: "line", source: sourceId, paint: recipe.linePaint || { "line-color": "#666", "line-width": 0.8, "line-opacity": 0.5 } });
+        this._layerIds.add(`${id}-fill`);
+        this._layerIds.add(`${id}-line`);
+      } else {
+        this.map.addLayer({ id, type: "line", source: sourceId, paint: recipe.paint });
+        this._layerIds.add(id);
+      }
+
+      // Afficher la légende
+      if (recipe.legend) this._showLegend(recipe.legend);
+
+      this._layerMeta.set(id, meta);
+      return;
+    }
+
+    // ── Fallback : ancien système de style ──
+    const theme = meta.theme || style.theme;
     const base = theme ? GeoStyles.forTheme(theme) : { color: "#5b8def", opacity: 0.3, stroke: "#3a6bd5", strokeWidth: 1.5 };
     const hasExplicitStyle = style && Object.keys(style).some(k => style[k] !== undefined);
     const resolved = hasExplicitStyle ? Object.assign({}, base, style) : base;
 
     if (geomType === "Point" || geomType === "MultiPoint") {
       this.map.addLayer({
-        id,
-        type: "circle",
-        source: sourceId,
+        id, type: "circle", source: sourceId,
         paint: {
           "circle-radius": style.radius || 6,
           "circle-color": resolved.color,
@@ -246,49 +267,18 @@ const GeoMap = {
         },
       });
       this._layerIds.add(id);
-
     } else if (geomType.includes("Polygon")) {
-      // PLU : coloration data-driven par typezone
       const hasPlu = features.some(f => f.properties?.typezone);
       const fillColor = hasPlu ? GeoStyles.pluFillColor() : resolved.color;
-
-      this.map.addLayer({
-        id: `${id}-fill`,
-        type: "fill",
-        source: sourceId,
-        paint: {
-          "fill-color": fillColor,
-          "fill-opacity": resolved.opacity || 0.3,
-        },
-      });
-      this.map.addLayer({
-        id: `${id}-line`,
-        type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": resolved.stroke || resolved.color,
-          "line-width": resolved.strokeWidth || 1.5,
-        },
-      });
+      this.map.addLayer({ id: `${id}-fill`, type: "fill", source: sourceId, paint: { "fill-color": fillColor, "fill-opacity": resolved.opacity || 0.3 } });
+      this.map.addLayer({ id: `${id}-line`, type: "line", source: sourceId, paint: { "line-color": resolved.stroke || resolved.color, "line-width": resolved.strokeWidth || 1.5 } });
       this._layerIds.add(`${id}-fill`);
       this._layerIds.add(`${id}-line`);
-
     } else {
-      // Lignes (cours d'eau, etc.)
-      this.map.addLayer({
-        id,
-        type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": resolved.color,
-          "line-width": resolved.strokeWidth || 2,
-          "line-opacity": resolved.opacity || 0.85,
-        },
-      });
+      this.map.addLayer({ id, type: "line", source: sourceId, paint: { "line-color": resolved.color, "line-width": resolved.strokeWidth || 2, "line-opacity": resolved.opacity || 0.85 } });
       this._layerIds.add(id);
     }
 
-    // Stocker le meta pour les popups
     this._layerMeta.set(id, meta);
   },
 
@@ -377,6 +367,7 @@ const GeoMap = {
     this._layerIds.clear();
     this._layerMeta.clear();
     this._popup.remove();
+    this._hideLegend();
     // Supprimer les sources src-* sauf la limite territoire et les couches contexte
     const style = this.map.getStyle();
     if (style?.sources) {
@@ -596,6 +587,106 @@ const GeoMap = {
       popup.remove();
       GeoState.emit("navigate-request", { code, name, level: levelDef.level });
     });
+  },
+
+  // ================================================================
+  // Légende
+  // ================================================================
+
+  /** Affiche la légende sur la carte. */
+  _showLegend(legend) {
+    this._hideLegend();
+    const container = document.getElementById("map-overlay");
+    if (!container) return;
+
+    const el = document.createElement("div");
+    el.id = "map-legend";
+    el.className = "map-legend";
+
+    const title = document.createElement("div");
+    title.className = "legend-title";
+    title.textContent = legend.title;
+    el.appendChild(title);
+
+    for (const item of legend.items) {
+      const row = document.createElement("div");
+      row.className = "legend-item";
+
+      const swatch = document.createElement("span");
+      swatch.className = "legend-swatch";
+      swatch.style.background = item.color;
+      row.appendChild(swatch);
+
+      const label = document.createElement("span");
+      label.className = "legend-label";
+      label.textContent = item.label;
+      row.appendChild(label);
+
+      if (item.count !== undefined && item.count > 0) {
+        const count = document.createElement("span");
+        count.className = "legend-count";
+        count.textContent = String(item.count);
+        row.appendChild(count);
+      }
+
+      el.appendChild(row);
+    }
+
+    container.appendChild(el);
+  },
+
+  /** Masque la légende. */
+  _hideLegend() {
+    const existing = document.getElementById("map-legend");
+    if (existing) existing.remove();
+  },
+
+  /**
+   * Met à jour les compteurs de la légende depuis les features réellement chargées.
+   * Appelé par geo-fetcher après pagination complète.
+   */
+  updateLegendCounts(features, classification) {
+    if (!classification || classification.method !== "categorical" || !classification.field) return;
+    const el = document.getElementById("map-legend");
+    if (!el) return;
+
+    // Compter par valeur du champ classifiant
+    const counts = {};
+    for (const f of features) {
+      const props = f.properties || f;
+      const v = String(props[classification.field] ?? "");
+      if (v) counts[v] = (counts[v] || 0) + 1;
+    }
+
+    // Mettre à jour les compteurs dans les items de légende
+    const items = el.querySelectorAll(".legend-item");
+    items.forEach((item) => {
+      const countEl = item.querySelector(".legend-count");
+      const labelEl = item.querySelector(".legend-label");
+      if (!labelEl || !countEl) return;
+
+      // Trouver le total pour cette catégorie (somme des sous-valeurs)
+      const label = labelEl.textContent;
+      // Chercher la valeur entre parenthèses — ex: "Urbaine (U)" → "U"
+      const match = label.match(/\(([^)]+)\)$/);
+      if (!match) return;
+      const key = match[1];
+
+      // Compter toutes les features dont la valeur commence par ce préfixe
+      let total = 0;
+      for (const [v, c] of Object.entries(counts)) {
+        if (v === key || v.startsWith(key)) total += c;
+      }
+      countEl.textContent = String(total);
+    });
+
+    // Mettre à jour le titre avec le total
+    const titleEl = el.querySelector(".legend-title");
+    if (titleEl) {
+      const totalFeatures = features.length;
+      const baseTitle = titleEl.textContent.replace(/\s*\(\d[\d\s]*\)$/, "");
+      titleEl.textContent = `${baseTitle} (${totalFeatures.toLocaleString("fr-FR")})`;
+    }
   },
 
   /** Met à jour le badge territoire sur la carte. */
