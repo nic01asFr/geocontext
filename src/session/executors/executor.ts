@@ -40,6 +40,7 @@ import {
 } from "../registry/pivot.js";
 import { combineUserFiltersCql, combineUserFiltersParams } from "../registry/filters.js";
 import { transformFeatures } from "../registry/fields.js";
+import { getStyleRecipe } from "../styling/index.js";
 import type { NavigationContext } from "../types.js";
 
 // ==========================================================================
@@ -103,6 +104,56 @@ export async function executeSources(
 }
 
 // ==========================================================================
+// Count — pré-comptage léger (resultType=hits)
+// ==========================================================================
+
+/**
+ * Compte le nombre de features pour une source sans télécharger les données.
+ * Utilise resultType=hits (WFS) — beaucoup plus rapide qu'un GetFeature.
+ * Pour les sources REST, retourne -1 (pas de mécanisme de count léger).
+ */
+export async function countSource(
+  source: SourceDef,
+  ctx: NavigationContext,
+): Promise<number> {
+  const endpoint = getEndpoint(source.endpoint);
+  if (endpoint.protocol !== "wfs" || !source.typename) return -1;
+
+  // Construire le filtre pivot
+  let cqlFilter: string | null = null;
+  switch (source.pivot.strategy) {
+    case "attribute": {
+      const result = buildAttributeCql(ctx, source.pivot);
+      if (!result) return -1;
+      cqlFilter = result.cql;
+      break;
+    }
+    case "spatial": {
+      const result = buildSpatialCql(ctx, source.pivot);
+      if (!result) return -1;
+      cqlFilter = result.cql;
+      break;
+    }
+    case "composite": {
+      const result = buildCompositeCql(ctx, source.pivot);
+      if (!result) return -1;
+      cqlFilter = result.cql;
+      break;
+    }
+    case "attribute_with_fallback": {
+      // Pour le count, on utilise la valeur primaire ou le cache
+      const result = buildFallbackCql(ctx, source.pivot);
+      if (!result) return -1;
+      cqlFilter = result.primary.cql;
+      break;
+    }
+  }
+
+  if (!cqlFilter) return -1;
+  return countWfs(endpoint, source, cqlFilter);
+}
+
+// ==========================================================================
 // WFS Executor
 // ==========================================================================
 
@@ -150,7 +201,6 @@ async function executeWfsSource(
         const primaryResult = await fetchWfs(endpoint, source, result.primary.cql);
         if (primaryResult.features.length > 0) {
           resolvedPartition = result.primary.resolvedPartition;
-          if (resolvedPartition) ctx.data[(source.pivot as any).cacheKey] = resolvedPartition;
           return finalizeWfsResult(source, endpoint, result.primary.cql, primaryResult, resolvedPartition);
         }
       } catch {
@@ -195,13 +245,7 @@ async function executeWfsSource(
     } catch { /* count optionnel */ }
   }
 
-  const finalResult = finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
-  // Mettre en cache le format partition résolu pour accélérer les requêtes suivantes
-  if (finalResult.resolvedPartition) {
-    const cacheKey = (source.pivot as any).cacheKey as string | undefined;
-    if (cacheKey) ctx.data[cacheKey] = finalResult.resolvedPartition;
-  }
-  return finalResult;
+  return finalizeWfsResult(source, endpoint, cqlFilter!, rawResult, resolvedPartition);
 }
 
 /**
@@ -343,6 +387,24 @@ function finalizeWfsResult(
         .filter((f) => f.type !== "geometry")
         .map((f) => ({ key: f.key, label: f.label, type: f.type, primary: f.primary, unit: f.unit })),
     };
+
+    // Générer le style recipe (déterministe, instantané)
+    try {
+      const recipe = getStyleRecipe(source, transformed);
+      layerSpec.styleRecipe = {
+        paint: recipe.paint,
+        linePaint: recipe.linePaint,
+        geometryType: recipe.geometryType,
+        legend: recipe.legend,
+        classification: {
+          method: recipe.classification.method,
+          field: "field" in recipe.classification ? recipe.classification.field : null,
+        },
+        labelTemplate: recipe.labelTemplate,
+      };
+    } catch (e) {
+      // Styling non critique — continuer sans
+    }
   }
 
   // Ne PAS inclure le geojson brut dans le résultat MCP
@@ -484,6 +546,24 @@ async function executeRestSource(
           .map((f) => f.key),
         featureCount: geoFeatures.length,
       };
+
+      // Style recipe pour sources REST inline
+      try {
+        const recipe = getStyleRecipe(source, transformed);
+        layerSpec.styleRecipe = {
+          paint: recipe.paint,
+          linePaint: recipe.linePaint,
+          geometryType: recipe.geometryType,
+          legend: recipe.legend,
+          classification: {
+            method: recipe.classification.method,
+            field: "field" in recipe.classification ? recipe.classification.field : null,
+          },
+          labelTemplate: recipe.labelTemplate,
+        };
+      } catch (e) {
+        // Styling non critique
+      }
     }
   }
 

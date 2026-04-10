@@ -732,6 +732,28 @@ export interface LayerSpec {
 
   /** Définition des champs pour le data-panel (labels, types, unités) */
   fields?: { key: string; label: string; type: string; primary?: boolean; unit?: string }[];
+
+  /** Style enrichi généré par le système de styling automatique */
+  styleRecipe?: {
+    /** Paint MapLibre natif (expressions data-driven) */
+    paint: Record<string, unknown>;
+    /** Paint du contour (polygones) */
+    linePaint?: Record<string, unknown>;
+    /** Type de géométrie */
+    geometryType: "point" | "line" | "polygon";
+    /** Légende */
+    legend: {
+      title: string;
+      items: { label: string; color: string; count?: number }[];
+    };
+    /** Classification utilisée */
+    classification: {
+      method: "categorical" | "graduated" | "single";
+      field?: string | null;
+    };
+    /** Template de label pour popups */
+    labelTemplate?: string | null;
+  };
 }
 
 // ==========================================================================

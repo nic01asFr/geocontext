@@ -113,6 +113,12 @@ export interface NavigationContext {
   theme: Theme | null;
   data: Record<string, any>;
 
+  // Pivot cache — formats de partition résolus (ex: PLU vs PLUi)
+  pivotCache: Record<string, string>;
+
+  // Pré-comptage — nombre de features par source (chargé en background après navigation)
+  counts: Record<string, number>;
+
   // Map layers
   layers: LayerState[];
 
@@ -120,7 +126,11 @@ export interface NavigationContext {
   history: ContextSnapshot[];
 }
 
-export type ContextSnapshot = Omit<NavigationContext, "history">;
+export type SnapshotType = "navigate" | "theme";
+
+export type ContextSnapshot = Omit<NavigationContext, "history"> & {
+  snapshotType?: SnapshotType;
+};
 
 // ---------------------------------------------------------------------------
 // Actions & tool building
@@ -165,6 +175,8 @@ export function createEmptyContext(): NavigationContext {
     hierarchy: {},
     theme: null,
     data: {},
+    pivotCache: {},
+    counts: {},
     layers: [],
     history: [],
   };

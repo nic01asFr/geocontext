@@ -28,7 +28,6 @@ import type {
 import { buildRegistryKey } from "./types.js";
 import { ENDPOINTS } from "./endpoints.js";
 import type { TerritoryLevel, Theme } from "../types.js";
-import { THEMES_BY_LEVEL } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Import de toutes les sources
@@ -87,8 +86,7 @@ class RegistryValidationError extends Error {
  * 1. Chaque source référence un endpoint existant
  * 2. Les IDs de source sont uniques
  * 3. Chaque source a au moins un level
- * 4. Le thème de chaque source est compatible avec ses levels (THEMES_BY_LEVEL)
- * 5. Les sources WFS ont un typename, les sources REST ont un path
+ * 4. Les sources WFS ont un typename, les sources REST ont un path
  */
 function validateSources(sources: SourceDef[]): void {
   const errors: string[] = [];
@@ -111,17 +109,7 @@ function validateSources(sources: SourceDef[]): void {
       errors.push(`Source "${source.id}" : aucun level déclaré`);
     }
 
-    // 4. Thème compatible avec les levels
-    for (const level of source.levels) {
-      const allowedThemes = THEMES_BY_LEVEL[level];
-      if (!allowedThemes.includes(source.theme)) {
-        errors.push(
-          `Source "${source.id}" : thème "${source.theme}" non autorisé au niveau "${level}"`,
-        );
-      }
-    }
-
-    // 5. WFS → typename requis, REST → path requis
+    // 4. WFS → typename requis, REST → path requis
     const endpoint = ENDPOINTS.get(source.endpoint);
     if (endpoint) {
       if (endpoint.protocol === "wfs" && !source.typename) {
@@ -155,17 +143,27 @@ type SourceById = ReadonlyMap<string, SourceDef>;
  * Ex: une source avec levels=["commune","parcelle"] apparaît dans
  * les clés "commune.urbanisme.zonages" ET "parcelle.urbanisme.zonages".
  */
+/** Thèmes disponibles par niveau territorial — dérivé des sources */
+type ThemesByLevel = ReadonlyMap<TerritoryLevel, Theme[]>;
+
 function buildIndexes(sources: SourceDef[]): {
   byKey: SourceIndex;
   byId: SourceById;
+  themesByLevel: ThemesByLevel;
 } {
   const byKey = new Map<RegistryKey, SourceDef[]>();
   const byId = new Map<string, SourceDef>();
+  const themeSets = new Map<TerritoryLevel, Set<Theme>>();
 
   for (const source of sources) {
     byId.set(source.id, source);
 
     for (const level of source.levels) {
+      // Collecter les thèmes par niveau
+      const set = themeSets.get(level) ?? new Set<Theme>();
+      set.add(source.theme);
+      themeSets.set(level, set);
+
       // Clé avec action (ex: "commune.urbanisme.zonages")
       const key = buildRegistryKey(level, source.theme, source.action);
       const existing = byKey.get(key) ?? [];
@@ -185,7 +183,13 @@ function buildIndexes(sources: SourceDef[]): {
     }
   }
 
-  return { byKey, byId };
+  // Convertir les sets en tableaux ordonnés
+  const themesByLevel = new Map<TerritoryLevel, Theme[]>();
+  for (const [level, themes] of themeSets) {
+    themesByLevel.set(level, Array.from(themes));
+  }
+
+  return { byKey, byId, themesByLevel };
 }
 
 // ==========================================================================
@@ -200,6 +204,7 @@ function buildIndexes(sources: SourceDef[]): {
 export class Registry {
   private readonly byKey: SourceIndex;
   private readonly byId: SourceById;
+  private readonly themesByLevel: ThemesByLevel;
   private readonly sources: readonly SourceDef[];
 
   constructor(sources: SourceDef[] = ALL_SOURCES) {
@@ -207,6 +212,7 @@ export class Registry {
     const indexes = buildIndexes(sources);
     this.byKey = indexes.byKey;
     this.byId = indexes.byId;
+    this.themesByLevel = indexes.themesByLevel;
     this.sources = Object.freeze([...sources]);
   }
 
@@ -266,11 +272,7 @@ export class Registry {
    *   → ["identite", "urbanisme", "cadastre", "risques", ...]
    */
   getThemes(level: TerritoryLevel): Theme[] {
-    const allowed = THEMES_BY_LEVEL[level];
-    return allowed.filter((theme) => {
-      const key = buildRegistryKey(level, theme);
-      return this.byKey.has(key);
-    });
+    return this.themesByLevel.get(level) ?? [];
   }
 
   /**

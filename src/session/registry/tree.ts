@@ -135,11 +135,19 @@ function buildThemeNode(
     const sources = reg.getSources(ctx.level!, theme, actionDef.id);
     const sourceIds = sources.map((s) => s.id);
 
-    // Badge = nombre de features chargées si le thème est actif
+    // Badge : données chargées > compteur pré-calculé > null
     let badge: number | null = null;
     if (ctx.theme === theme && ctx.data[actionDef.id] !== undefined) {
       const data = ctx.data[actionDef.id];
       badge = Array.isArray(data) ? data.length : null;
+    } else {
+      // Utiliser les compteurs pré-calculés si disponibles
+      const count = sources.reduce((sum, s) => {
+        const c = ctx.counts?.[s.id];
+        return c != null && c >= 0 ? sum + c : sum;
+      }, 0);
+      const hasCounts = sources.some((s) => ctx.counts?.[s.id] != null);
+      if (hasCounts) badge = count;
     }
 
     return {
@@ -199,22 +207,43 @@ export function buildActionDescription(ctx: NavigationContext, reg: Registry): s
   if (!ctx.level || !ctx.name) return "Naviguer d'abord vers un territoire.";
 
   if (!ctx.theme) {
-    // Lister les thèmes
+    // Lister les thèmes avec compteurs si disponibles
     const themes = reg.getThemes(ctx.level);
-    const labels = themes.map((t) => THEME_META[t].label);
+    const labels = themes.map((t) => {
+      const meta = THEME_META[t];
+      // Agréger les compteurs des sources de ce thème
+      const sources = reg.getSources(ctx.level!, t).filter((s) => s.action);
+      const total = sources.reduce((sum, s) => {
+        const c = ctx.counts?.[s.id];
+        return c != null && c >= 0 ? sum + c : sum;
+      }, 0);
+      const hasCounts = sources.some((s) => ctx.counts?.[s.id] != null);
+      return hasCounts && total > 0 ? `${meta.label} (${total})` : meta.label;
+    });
     return `Consulter les données de ${ctx.name} (${ctx.code}). Thèmes disponibles : ${labels.join(", ")}.`;
   }
 
-  // Lister les actions du thème actif
+  // Lister les actions du thème actif + les autres thèmes
   const actionDefs = reg.getActionDefs(ctx.level, ctx.theme);
   const meta = THEME_META[ctx.theme];
+  const otherThemes = reg.getThemes(ctx.level)
+    .filter((t) => t !== ctx.theme)
+    .map((t) => THEME_META[t].label);
+
+  const parts: string[] = [];
 
   if (actionDefs.length === 0) {
-    return `${meta.label} de ${ctx.name} — données chargées.`;
+    parts.push(`${meta.label} de ${ctx.name} — données chargées.`);
+  } else {
+    const actionLabels = actionDefs.map((a) => a.label);
+    parts.push(`Agir sur ${meta.label.toLowerCase()} de ${ctx.name}. Actions : ${actionLabels.join(", ")}.`);
   }
 
-  const actionLabels = actionDefs.map((a) => a.label);
-  return `Agir sur ${meta.label.toLowerCase()} de ${ctx.name}. Actions : ${actionLabels.join(", ")}.`;
+  if (otherThemes.length > 0) {
+    parts.push(`Autres thèmes : ${otherThemes.join(", ")}.`);
+  }
+
+  return parts.join(" ");
 }
 
 /**
@@ -234,7 +263,10 @@ export function buildActionEnums(ctx: NavigationContext, reg: Registry): string[
     return reg.getThemes(ctx.level);
   }
 
-  return reg.getActions(ctx.level, ctx.theme);
+  // Sous-actions du thème courant + autres thèmes accessibles
+  const actions = reg.getActions(ctx.level, ctx.theme);
+  const otherThemes = reg.getThemes(ctx.level).filter((t) => t !== ctx.theme);
+  return [...actions, ...otherThemes];
 }
 
 // ==========================================================================

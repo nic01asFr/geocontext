@@ -43,14 +43,13 @@ const MAP_UI_RESOURCE = "ui://geocontext-map";
 
 import { registry } from "./registry/index.js";
 import { buildActionDescription, buildActionEnums, THEME_META } from "./registry/tree.js";
-import { executeSource, executeSources } from "./executors/executor.js";
+import { executeSource, executeSources, countSource } from "./executors/executor.js";
 import { formatFeatureAsText, extractPrimaryFields } from "./registry/fields.js";
 import { resolveTerritory } from "./navigate.js";
 import { wfsClient } from "../gpf/wfs.js";
-import type { SourceResult } from "./registry/types.js";
+import type { SourceDef, SourceResult, AttributeWithFallbackPivot } from "./registry/types.js";
 import {
   createEmptyContext,
-  THEMES_BY_LEVEL,
   type NavigationContext,
   type ContextSnapshot,
   type Theme,
@@ -207,10 +206,15 @@ export class GeoContextSession {
     this.ctx.hierarchy = result.hierarchy;
     this.ctx.theme = null;
     this.ctx.data = {};
+    this.ctx.pivotCache = {};
+    this.ctx.counts = {};
     this.ctx.layers = [];
 
     const themes = registry.getThemes(result.level);
     const themeLabels = themes.map((t) => THEME_META[t].label);
+
+    // Pré-comptage en background — enrichit les descriptions pour le prochain appel
+    this.launchBackgroundCounts(result.level, result.code);
 
     return textResult(
       `Navigué vers ${result.name} (${result.level}, ${result.code}).\n` +
@@ -243,6 +247,10 @@ export class GeoContextSession {
 
     // Cas 1 : action = un thème → changer de thème + charger vue d'ensemble
     if (themes.includes(action as Theme)) {
+      // Sauvegarder le contexte avant changement de thème (back granulaire)
+      if (this.ctx.theme && this.ctx.theme !== action) {
+        this.pushHistory("theme");
+      }
       this.ctx.theme = action as Theme;
 
       // Charger les sources "required" du thème (vue d'ensemble)
@@ -257,6 +265,7 @@ export class GeoContextSession {
       let results: SourceResult[] = [];
       if (sourcesToLoad.length > 0) {
         results = await executeSources(sourcesToLoad, this.ctx, userFilters);
+        cachePivotResults(this.ctx, sourcesToLoad, results);
       }
 
       this.ctx.data[action] = results;
@@ -287,14 +296,15 @@ export class GeoContextSession {
     }
 
     // Cas 2 : action = sous-action
-    // Chercher d'abord dans le thème courant, puis dans tous les thèmes (cross-thème)
+    // Chercher d'abord dans le thème courant, puis résoudre le thème parent implicitement
     let targetTheme = this.ctx.theme;
     let sources = targetTheme
       ? registry.getSources(this.ctx.level, targetTheme, action)
       : [];
 
+    // Résolution implicite : si l'action n'est pas dans le thème courant,
+    // chercher dans tous les thèmes et activer le bon automatiquement
     if (sources.length === 0) {
-      // Résolution cross-thème : chercher dans tous les thèmes disponibles
       for (const t of themes) {
         if (t === targetTheme) continue;
         const s = registry.getSources(this.ctx.level, t, action);
@@ -306,20 +316,21 @@ export class GeoContextSession {
       }
     }
 
-    // Aucune action trouvée nulle part
     if (sources.length === 0 || !targetTheme) {
       const hint = this.ctx.theme
-        ? `Actions dans ${THEME_META[this.ctx.theme].label} : ${registry.getActions(this.ctx.level, this.ctx.theme).join(", ")}. Thèmes disponibles : ${themes.join(", ")}.`
+        ? `Actions dans ${THEME_META[this.ctx.theme].label} : ${registry.getActions(this.ctx.level, this.ctx.theme).join(", ")}. Autres thèmes : ${themes.filter((t) => t !== this.ctx.theme).join(", ")}.`
         : `Thèmes disponibles : ${themes.join(", ")}.`;
-      return textResult(`Action inconnue : "${action}". ${hint}`);
+      return textResult(`Action "${action}" inconnue. ${hint}`);
     }
 
-    // Changer de thème si résolution cross-thème
+    // Changer de thème si résolution implicite
     if (targetTheme !== this.ctx.theme) {
+      if (this.ctx.theme) this.pushHistory("theme");
       this.ctx.theme = targetTheme;
     }
 
     const results = await executeSources(sources, this.ctx, userFilters);
+    cachePivotResults(this.ctx, sources, results);
     this.ctx.data[`${this.ctx.theme}.${action}`] = results;
 
     // Mettre à jour les couches géographiques — remplacer si déjà présentes
@@ -401,12 +412,16 @@ export class GeoContextSession {
     const currentHistory = this.ctx.history;
     this.ctx = { ...prev, history: currentHistory };
 
-    return textResult(
-      this.ctx.name
-        ? `Retour à ${this.ctx.name} (${this.ctx.level}).`
-        : "Retour au contexte initial.",
-      this.ctx,
-    );
+    let label: string;
+    if (prev.snapshotType === "theme" && this.ctx.theme && this.ctx.name) {
+      label = `Retour à ${THEME_META[this.ctx.theme].label} · ${this.ctx.name}.`;
+    } else if (this.ctx.name) {
+      label = `Retour à ${this.ctx.name} (${this.ctx.level}).`;
+    } else {
+      label = "Retour au contexte initial.";
+    }
+
+    return textResult(label, this.ctx);
   }
 
   /**
@@ -598,6 +613,8 @@ export class GeoContextSession {
     let description: string;
     if (!prev) {
       description = "Remonter dans la navigation (historique vide).";
+    } else if (prev.snapshotType === "theme" && prev.theme && prev.name) {
+      description = `Retour à ${THEME_META[prev.theme].label} · ${prev.name}.`;
     } else if (prev.name) {
       const themePart = prev.theme ? ` · ${THEME_META[prev.theme].label}` : "";
       description = `Retour à ${prev.name}${themePart}.`;
@@ -849,13 +866,62 @@ export class GeoContextSession {
   }
 
   // ========================================================================
+  // Pré-comptage background
+  // ========================================================================
+
+  /**
+   * Lance des requêtes hits (count-only) en parallèle pour toutes les
+   * sources required de tous les thèmes au niveau courant.
+   * Non-bloquant : les compteurs alimentent ctx.counts pour enrichir
+   * les descriptions des outils au prochain tour.
+   */
+  private launchBackgroundCounts(level: TerritoryLevel, code: string): void {
+    const themes = registry.getThemes(level);
+    const sources = themes.flatMap((t) =>
+      registry.getSources(level, t).filter((s) => s.priority === "required" && s.action),
+    );
+
+    // Dédupliquer par sourceId
+    const seen = new Set<string>();
+    const unique = sources.filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+
+    Promise.all(
+      unique.map(async (s) => {
+        try {
+          const count = await countSource(s, this.ctx);
+          // Vérifier que le contexte n'a pas changé entre-temps
+          if (this.ctx.code === code && count >= 0) {
+            this.ctx.counts[s.id] = count;
+          }
+        } catch {
+          // Non-bloquant — on ignore les erreurs de comptage
+        }
+      }),
+    ).then(() => {
+      // Notifier le client que les tools ont des descriptions enrichies
+      if (this.ctx.code === code) {
+        this.server.sendToolListChanged().catch(() => {});
+      }
+    });
+  }
+
+  // ========================================================================
   // Historique
   // ========================================================================
 
   /**
    * Sauvegarde le contexte courant dans la pile d'historique.
+   * @param snapshotType — "navigate" pour changement de territoire, "theme" pour changement de thème
    */
-  private pushHistory(): void {
+  private pushHistory(snapshotType: import("./types.js").SnapshotType = "navigate"): void {
+    // Plafonner la pile à 20 entrées
+    if (this.ctx.history.length >= 20) {
+      this.ctx.history.shift();
+    }
     const snapshot: ContextSnapshot = {
       level: this.ctx.level,
       code: this.ctx.code,
@@ -864,9 +930,36 @@ export class GeoContextSession {
       hierarchy: { ...this.ctx.hierarchy },
       theme: this.ctx.theme,
       data: { ...this.ctx.data },
+      pivotCache: { ...this.ctx.pivotCache },
+      counts: { ...this.ctx.counts },
       layers: this.ctx.layers.map((l) => ({ ...l })),
+      snapshotType,
     };
     this.ctx.history.push(snapshot);
+  }
+}
+
+// ==========================================================================
+// Pivot cache — écriture centralisée dans la session
+// ==========================================================================
+
+/**
+ * Met à jour le pivotCache du contexte à partir des résultats d'exécution.
+ * Les partitions résolues (ex: PLU communal vs PLUi) sont cachées ici,
+ * et non dans l'executor, pour garder l'executor pur (sans mutation de contexte).
+ */
+function cachePivotResults(
+  ctx: NavigationContext,
+  sources: SourceDef[],
+  results: SourceResult[],
+): void {
+  for (const r of results) {
+    if (!r.resolvedPartition) continue;
+    const source = sources.find((s) => s.id === r.sourceId);
+    if (source?.pivot.strategy === "attribute_with_fallback") {
+      const cacheKey = (source.pivot as AttributeWithFallbackPivot).cacheKey;
+      ctx.pivotCache[cacheKey] = r.resolvedPartition;
+    }
   }
 }
 

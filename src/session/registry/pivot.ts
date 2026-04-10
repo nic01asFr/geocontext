@@ -174,7 +174,7 @@ export function buildFallbackCql(
   pivot: AttributeWithFallbackPivot,
 ): { primary: CqlFilterResult; fallback: CqlFilterResult } | null {
   // Vérifier si un format est déjà en cache
-  const cached = ctx.data[pivot.cacheKey] as string | undefined;
+  const cached = ctx.pivotCache?.[pivot.cacheKey] as string | undefined;
   if (cached) {
     return {
       primary: { cql: `${pivot.attribute} = '${escapeCql(cached)}'`, resolvedPartition: cached },
