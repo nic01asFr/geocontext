@@ -2,20 +2,13 @@
  * geocontext — Sources Environnement
  *
  * Couches d'espaces protégés et d'inventaires écologiques via WFS Géoplateforme.
- * Toutes sont **spatial-only** : pas d'attribut code_insee, filtre par bbox ou
- * INTERSECTS sur la géométrie du territoire.
+ * Toutes sont **spatial-only** : pas d'attribut code_insee, filtre par bbox.
  *
- * ⚠ L'executor doit s'assurer que context.bbox ou context.geometry est rempli
- *   avant d'appeler ces sources (résolu au navigate via ADMINEXPRESS).
+ * Schéma patrinat uniforme :
+ *   id_local, nom_site, date_crea, modif_adm, modif_geo,
+ *   url_fiche, surf_off, acte_deb, acte_fin, gest_site
  *
- * Typenames WFS (Géoplateforme) :
- *   patrinat_znieff1:znieff1     — ZNIEFF type I (habitats remarquables)
- *   patrinat_znieff2:znieff2     — ZNIEFF type II (grands ensembles)
- *   patrinat_sic:sic              — Sites d'Importance Communautaire (Natura 2000)
- *   patrinat_zps:zps              — Zones de Protection Spéciale (Natura 2000)
- *   patrinat_pnr:pnr              — Parcs Naturels Régionaux
- *   patrinat_rnn:rnn              — Réserves Naturelles Nationales
- *   patrinat_pn:pn                — Parcs Nationaux
+ * Colonne géométrie : "geom"
  *
  * @see docs/terrid-spec.md — contrainte spatial-only
  */
@@ -23,7 +16,7 @@
 import type { SourceDef } from "../types.js";
 
 // ---------------------------------------------------------------------------
-// Pivot spatial commun — BBOX sur la géométrie du territoire
+// Pivot spatial commun
 // ---------------------------------------------------------------------------
 
 const SPATIAL_BBOX = {
@@ -33,23 +26,24 @@ const SPATIAL_BBOX = {
   geometryColumn: "geom",
 };
 
-const SPATIAL_INTERSECTS = {
-  strategy: "spatial" as const,
-  spatialOp: "intersects" as const,
-  from: "context.geometry" as const,
-};
+// ---------------------------------------------------------------------------
+// Champs patrinat communs
+// ---------------------------------------------------------------------------
+
+const PATRINAT_FIELDS = [
+  { key: "nom_site", label: "Nom", type: "string" as const, primary: true },
+  { key: "id_local", label: "Identifiant", type: "string" as const, primary: false },
+  { key: "date_crea", label: "Date de création", type: "string" as const, primary: false },
+  { key: "surf_off", label: "Surface officielle", type: "number" as const, unit: "ha", primary: false },
+  { key: "url_fiche", label: "Fiche", type: "string" as const, primary: false },
+  { key: "gest_site", label: "Gestionnaire", type: "string" as const, primary: false },
+  { key: "geom", label: "Géométrie", type: "geometry" as const },
+];
 
 // ==========================================================================
-// ZNIEFF — Zones Naturelles d'Intérêt Écologique, Faunistique et Floristique
+// ZNIEFF
 // ==========================================================================
 
-/**
- * ZNIEFF de type I — secteurs de petite taille, habitats remarquables.
- *
- * Identifient des secteurs de grand intérêt biologique ou écologique.
- * Pas de portée réglementaire directe mais prises en compte dans
- * les documents d'urbanisme.
- */
 export const ENV_ZNIEFF1: SourceDef = {
   id: "env_znieff1",
   label: "ZNIEFF type I",
@@ -60,24 +54,11 @@ export const ENV_ZNIEFF1: SourceDef = {
   theme: "environnement",
   action: "znieff",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "id_mnhn", label: "Identifiant MNHN", type: "string", primary: false },
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "recommended",
 };
 
-/**
- * ZNIEFF de type II — grands ensembles naturels riches.
- *
- * Espaces plus vastes intégrant des ZNIEFF I, correspondant à de
- * grands ensembles écologiques cohérents.
- */
 export const ENV_ZNIEFF2: SourceDef = {
   id: "env_znieff2",
   label: "ZNIEFF type II",
@@ -88,15 +69,8 @@ export const ENV_ZNIEFF2: SourceDef = {
   theme: "environnement",
   action: "znieff",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "id_mnhn", label: "Identifiant MNHN", type: "string", primary: false },
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "recommended",
 };
 
@@ -104,12 +78,6 @@ export const ENV_ZNIEFF2: SourceDef = {
 // Natura 2000
 // ==========================================================================
 
-/**
- * Sites d'Importance Communautaire (SIC) — Directive Habitats.
- *
- * Réseau Natura 2000 : sites désignés pour la conservation
- * d'habitats naturels et d'espèces animales/végétales.
- */
 export const ENV_NATURA2000_SIC: SourceDef = {
   id: "env_natura2000_sic",
   label: "Natura 2000 — Habitats (SIC)",
@@ -120,29 +88,11 @@ export const ENV_NATURA2000_SIC: SourceDef = {
   theme: "environnement",
   action: "natura2000",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "sitecode", label: "Code du site", type: "string", primary: true },
-    { key: "sitename", label: "Nom du site", type: "string", primary: true },
-    {
-      key: "superficie",
-      label: "Superficie",
-      type: "number",
-      unit: "ha",
-      primary: false,
-    },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "recommended",
 };
 
-/**
- * Zones de Protection Spéciale (ZPS) — Directive Oiseaux.
- *
- * Sites désignés pour la conservation des oiseaux sauvages.
- */
 export const ENV_NATURA2000_ZPS: SourceDef = {
   id: "env_natura2000_zps",
   label: "Natura 2000 — Oiseaux (ZPS)",
@@ -153,21 +103,8 @@ export const ENV_NATURA2000_ZPS: SourceDef = {
   theme: "environnement",
   action: "natura2000",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "sitecode", label: "Code du site", type: "string", primary: true },
-    { key: "sitename", label: "Nom du site", type: "string", primary: true },
-    {
-      key: "superficie",
-      label: "Superficie",
-      type: "number",
-      unit: "ha",
-      primary: false,
-    },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "recommended",
 };
 
@@ -175,9 +112,6 @@ export const ENV_NATURA2000_ZPS: SourceDef = {
 // Espaces protégés
 // ==========================================================================
 
-/**
- * Parcs Naturels Régionaux (PNR).
- */
 export const ENV_PNR: SourceDef = {
   id: "env_pnr",
   label: "Parcs Naturels Régionaux",
@@ -188,27 +122,11 @@ export const ENV_PNR: SourceDef = {
   theme: "environnement",
   action: "pnr",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    {
-      key: "date_crea",
-      label: "Date de création",
-      type: "date",
-      transforms: ["parse_date_iso", "format_date_fr"],
-      primary: true,
-    },
-    { key: "url", label: "Site web", type: "string", primary: false },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "recommended",
 };
 
-/**
- * Réserves Naturelles Nationales (RNN).
- */
 export const ENV_RNN: SourceDef = {
   id: "env_rnn",
   label: "Réserves Naturelles Nationales",
@@ -219,38 +137,23 @@ export const ENV_RNN: SourceDef = {
   theme: "environnement",
   action: "rnn",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "date_creation", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "optional",
 };
 
-/**
- * Parcs Nationaux — zones cœur.
- */
 export const ENV_PN: SourceDef = {
   id: "env_pn",
   label: "Parcs Nationaux",
   description: "Parcs Nationaux (zones cœur)",
   endpoint: "gpf_wfs",
-  typename: "patrinat_pn:pn",
+  typename: "patrinat_pn2:pn",
   levels: ["commune", "departement", "epci", "region"],
   theme: "environnement",
   action: "pn",
   pivot: SPATIAL_BBOX,
-  fields: [
-    { key: "nom", label: "Nom", type: "string", primary: true },
-    { key: "date_crea", label: "Date de création", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "geom", label: "Géométrie", type: "geometry" },
-  ],
-  constraints: {
-    spatialOnly: true,
-  },
+  fields: [...PATRINAT_FIELDS],
+  constraints: { spatialOnly: true },
   priority: "optional",
 };
 

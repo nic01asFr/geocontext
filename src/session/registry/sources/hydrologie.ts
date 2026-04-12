@@ -47,13 +47,8 @@ export const HYDRO_COURS_EAU: SourceDef = {
   pivot: SPATIAL_BBOX,
   fields: [
     { key: "toponyme", label: "Nom", type: "string", primary: true },
-    {
-      key: "classe",
-      label: "Classe",
-      type: "string",
-      primary: true,
-    },
-    { key: "regime", label: "Régime", type: "string", primary: false },
+    { key: "importance", label: "Importance", type: "string", primary: true },
+    { key: "code_hydrographique", label: "Code hydro", type: "string", primary: false },
     { key: "statut", label: "Statut", type: "string", primary: false },
     { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
@@ -83,29 +78,9 @@ export const HYDRO_PLANS_EAU: SourceDef = {
   pivot: SPATIAL_BBOX,
   fields: [
     { key: "toponyme", label: "Nom", type: "string", primary: true },
-    {
-      key: "nature",
-      label: "Nature",
-      type: "enum",
-      enumValues: {
-        "Lac": "Lac",
-        "Retenue": "Retenue",
-        "Réservoir": "Réservoir",
-        "Étang": "Étang",
-        "Gravière": "Gravière",
-        "Mare": "Mare",
-        "Bassin": "Bassin",
-      },
-      primary: true,
-    },
-    {
-      key: "superficie",
-      label: "Superficie",
-      type: "number",
-      unit: "ha",
-      transforms: ["m2_to_ha"],
-      primary: true,
-    },
+    { key: "nature", label: "Nature", type: "string", primary: true },
+    { key: "importance", label: "Importance", type: "string", primary: false },
+    { key: "caractere_permanent", label: "Permanent", type: "string", primary: false },
     { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
