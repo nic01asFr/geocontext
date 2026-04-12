@@ -151,6 +151,7 @@ class McpClient {
   async _notify(method, params = {}) {
     const headers = {
       "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
     };
     if (this.sessionId) {
       headers["mcp-session-id"] = this.sessionId;
