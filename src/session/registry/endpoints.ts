@@ -179,7 +179,7 @@ const RNB: EndpointDef = {
 };
 
 /**
- * DVF+ — Demandes de Valeurs Foncières (API CEREMA / DVF+).
+ * DVF — Demandes de Valeurs Foncières (API REST d'exploration des transactions).
  *
  * Transactions immobilières. Filtrage par code_insee ou idpar (parcelle).
  * Réponse paginée : { count, next, previous, results: [...] }

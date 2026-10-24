@@ -117,6 +117,17 @@ Single-page app (vanilla JS, no build step) with 3-column layout:
 | `chat.js` | Chat with direct MCP commands (works without LLM) |
 | `app.js` | Orchestration, search bar, event routing |
 
+### Additional modules
+
+| Path | Role |
+|------|------|
+| `src/emprise.ts`, `src/territoire.ts`, `src/exact-gpu.ts` | Exact territory membership (see `docs/territoire-exact.md`). Never return a partial or approximate total: raise an explicit error. |
+| `src/tiles.ts` | `/tiles/*` GeoJSON tiles with disk cache |
+| `src/liens/` | `/liens/*` reference-based sheets (elected officials, EPCI, IRIS) |
+| `src/agent/agent.ts` | Integrated agent (`/agent/*`), OpenAI-compatible LLM via `AGENT_*` env vars |
+| `public/map-atlas.js` | Default web map, based on an external `<atlas-bi>` component (`?carte=maplibre` uses `public/map.js`) |
+| `public/ui/geocontext-map.html` | MCP App bundle (`ui://geocontext-map`) |
+
 ### Tests (`test/`)
 
 | Test file | Type | Network? |
@@ -137,6 +148,10 @@ Single-page app (vanilla JS, no build step) with 3-column layout:
 | `docs/dynamic-tools.md` | Dynamic MCP tool surface — how tools adapt to context |
 | `docs/web-interface.md` | Web interface — map + panels + chat |
 | `docs/terrid-spec.md` | Data sources specification — endpoints, constraints |
+| `docs/structures.md` | Pieces of the repository and how they fit together |
+| `docs/territoire-exact.md` | Exact territory membership: rules and limits |
+| `docs/api-http-agent.md` | HTTP routes, agent, security, search (no semantic search exists) |
+| `docs/usages-professionnels.md` | Reliability and limits |
 
 ## Key Conventions
 

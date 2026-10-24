@@ -61,6 +61,16 @@ Ensuite :
 }
 ```
 
+## Documentation
+
+| Document | Contenu |
+|---|---|
+| [docs/structures.md](docs/structures.md) | Les pièces du dépôt : contexte, serveur MCP, MCP App, interface web |
+| [docs/api-http-agent.md](docs/api-http-agent.md) | Routes HTTP, agent intégré, sécurité, état de la recherche |
+| [docs/territoire-exact.md](docs/territoire-exact.md) | Appartenance exacte à un territoire : règles et limites |
+| [docs/usages-professionnels.md](docs/usages-professionnels.md) | Ce qui est fiable, ce qui ne l'est pas |
+| [docs/architecture.md](docs/architecture.md) | Architecture générale |
+
 ## Développement
 
 ### Construction de la version locale

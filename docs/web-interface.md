@@ -1,5 +1,7 @@
 # Interface web — geocontext
 
+> Ce document est un document de conception d'origine ; certaines parties décrivent une intention (zoom adaptatif, fiches détaillées, pile technique « envisagée »). L'implémentation actuelle est décrite dans [structures.md](structures.md).
+
 ## Principe
 
 L'interface web est un client du serveur MCP geocontext (en mode `http`). Elle combine une carte interactive, des panneaux thématiques et un chat avec agent LLM. Les trois partagent le **même contexte de session MCP**.

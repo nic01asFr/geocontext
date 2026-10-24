@@ -82,39 +82,27 @@ Les deux parcourent le **même arbre de navigation**, produisent le **même cont
 
 ```
 src/
-├── index.ts                 # Point d'entrée, transport stdio/http
-├── logger.js                # Logging Winston
-│
-├── session/                 # NOUVEAU — gestion du contexte
-│   ├── types.ts             # NavigationContext, ViewState, ContextEntry
-│   ├── context.ts           # GeoContextSession — logique de navigation
-│   ├── dynamic-tools.ts     # Génération tools/list selon contexte
-│   └── tool-handlers.ts     # Dispatch action/map/compare → gpf/
-│
-├── tools/                   # Tools MCP (auto-découverts par mcp-framework)
-│   ├── GeocodeTool.ts       # Statique — géocodage
-│   ├── AltitudeTool.ts      # Statique — altitude
-│   ├── AdminexpressTool.ts  # Backend pour action(identité)
-│   ├── CadastreTool.ts      # Backend pour action(cadastre)
-│   ├── UrbanismeTool.ts     # Backend pour action(urbanisme)
-│   ├── AssietteSupTool.ts   # Backend pour action(servitudes)
-│   ├── GpfWfsSearchTypesTool.ts   # Backend pour search
-│   ├── GpfWfsDescribeTypeTool.ts  # Backend pour action(describe)
-│   ├── GpfWfsGetFeaturesTool.ts   # Backend pour action + map
-│   └── GpfWfsListTypesTool.ts     # Déprécié
-│
-├── gpf/                     # Clients Géoplateforme (inchangés)
-│   ├── geocode.js
-│   ├── altitude.js
-│   ├── adminexpress.js
-│   ├── cadastre.js → parcellaire-express.js
-│   ├── urbanisme.js
-│   └── wfs.ts
-│
+├── index.ts            # Serveur MCP, transports stdio/http, routes HTTP, fichiers statiques
+├── emprise.ts          # Contour d'un territoire et décision d'appartenance (voir territoire-exact.md)
+├── territoire.ts       # Décision rapide des cas certains (grille + bandes d'arêtes)
+├── exact-gpu.ts        # Lecture complète et contrôlée d'une couche WFS
+├── tiles.ts            # Route /tiles/* (cache disque)
+├── agent/agent.ts      # Agent intégré (/agent/*)
+├── liens/              # Fiches par références : elus.ts, epci.ts, iris.ts (/liens/*)
+├── session/
+│   ├── session.ts      # GeoContextSession : outils, ressources, contexte
+│   ├── navigate.ts     # Résolution de territoire
+│   ├── types.ts        # NavigationContext, niveaux, thèmes
+│   ├── registry/       # Points d'accès, sources par thème, pivots, champs, filtres
+│   ├── executors/      # Exécution WFS/REST, mode exact
+│   └── styling/        # Génération déterministe de styles de couche
+├── tools/              # Outils historiques (mcp-framework), utilisés comme briques
+├── gpf/                # Clients Géoplateforme
 └── helpers/
-    ├── http.js              # fetchJSON avec proxy
-    └── distance.js          # Utilitaires géométriques jsts
+public/                 # Interface web ; public/ui/ = MCP App
 ```
+
+Pour le détail de chaque pièce : [structures.md](structures.md).
 
 ## Transports
 
@@ -132,3 +120,7 @@ src/
 | [dynamic-tools.md](dynamic-tools.md) | Surface de tools dynamiques MCP |
 | [web-interface.md](web-interface.md) | Interface cartographique + chat |
 | [terrid-spec.md](terrid-spec.md) | Spécification détaillée des sources de données |
+| [structures.md](structures.md) | Les pièces du dépôt et leur articulation |
+| [territoire-exact.md](territoire-exact.md) | Appartenance exacte à un territoire |
+| [api-http-agent.md](api-http-agent.md) | Routes HTTP, agent, sécurité, recherche |
+| [usages-professionnels.md](usages-professionnels.md) | Fiabilité et limites |
