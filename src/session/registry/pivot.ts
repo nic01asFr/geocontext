@@ -169,6 +169,11 @@ export function buildSpatialCql(
  *   buildFallbackCql(ctx, pivot)
  *   → { primary: "partition = '25349'", fallback: "partition = '200067874_25349'" }
  */
+/** Valeur mémorisée : un « % » final signale un préfixe (LIKE), sinon égalité. */
+function cqlCache(attribute: string, v: string): string {
+  return v.endsWith("%") ? `${attribute} LIKE '${escapeCql(v.slice(0, -1))}%'` : `${attribute} = '${escapeCql(v)}'`;
+}
+
 export function buildFallbackCql(
   ctx: NavigationContext,
   pivot: AttributeWithFallbackPivot,
@@ -177,8 +182,8 @@ export function buildFallbackCql(
   const cached = ctx.pivotCache?.[pivot.cacheKey] as string | undefined;
   if (cached) {
     return {
-      primary: { cql: `${pivot.attribute} = '${escapeCql(cached)}'`, resolvedPartition: cached },
-      fallback: { cql: `${pivot.attribute} = '${escapeCql(cached)}'`, resolvedPartition: cached },
+      primary: { cql: cqlCache(pivot.attribute, cached), resolvedPartition: cached },
+      fallback: { cql: cqlCache(pivot.attribute, cached), resolvedPartition: cached },
     };
   }
 
@@ -198,10 +203,9 @@ export function buildFallbackCql(
       cql: `${pivot.attribute} = '${escapeCql(primaryValue)}'`,
       resolvedPartition: primaryValue,
     },
-    fallback: {
-      cql: `${pivot.attribute} = '${escapeCql(fallbackValue)}'`,
-      resolvedPartition: fallbackValue,
-    },
+    fallback: pivot.fallbackLike
+      ? { cql: `${pivot.attribute} LIKE '${escapeCql(fallbackValue)}%'`, resolvedPartition: `${fallbackValue}%` }
+      : { cql: `${pivot.attribute} = '${escapeCql(fallbackValue)}'`, resolvedPartition: fallbackValue },
   };
 }
 

@@ -1,0 +1,81 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Suite de test atlas-bi</title>
+<style>body{margin:0;font:13px system-ui,sans-serif;display:grid;grid-template-columns:1fr 430px;height:100vh}atlas-bi{display:block;height:100vh}aside{overflow:auto;border-left:1px solid #ccc;padding:8px;background:#f6f7f9}
+table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #ddd;padding:2px 4px;vertical-align:top;font-size:12px}.ok{color:#0a7a3b}.ko{color:#b3261e}.na{color:#8a6d00}button{padding:4px 10px;margin:4px 0}#ev{font:11px monospace;white-space:pre-wrap;max-height:120px;overflow:auto;background:#fff;border:1px solid #ddd;padding:3px}</style></head><body>
+<atlas-bi id="carte" src="https://nic01asfr.github.io/Widgets-Grist/atlas/index.html" delai="30000"></atlas-bi>
+<aside><b>Suite atlas-bi (profil BI)</b> <button id="next" disabled>Continuer ▶</button> <span id="etat">init</span>
+<table id="t"></table><div id="ev"></div></aside>
+<script type="module">
+await import('https://nic01asfr.github.io/Widgets-Grist/atlas/lib/bi/atlas-bi-element.js');
+const $=id=>document.getElementById(id), carte=$('carte');
+window.__res=[]; const ev={}; 
+for(const t of ['select','hover','filter','camera','time','legend','layer','bulle','action','drill','error','progress','statistique','theme','connexion','ready'])carte.addEventListener('atlas-bi-'+t,e=>{ev[t]=(ev[t]||0)+1;$('ev').textContent=Object.entries(ev).map(([k,v])=>k+':'+v).join('  ');(window.__ev??={})[t]=e.detail});
+carte.addEventListener('atlas-bi-select',e=>{window.__lastSelect=e.detail});
+carte.addEventListener('atlas-bi-action',e=>{window.__lastAction=e.detail});
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+let cnt=0;const PAUSES=new Set((new URLSearchParams(location.search).get('pause')||'').split(',').filter(Boolean).map(Number));
+async function step(nom,fn,{pause=false,attendu=null}={}){ $('etat').textContent='… '+nom; let st='ok',d='';
+  try{const r=await fn();d=typeof r==='string'?r:JSON.stringify(r);}catch(e){st='ko';d=(e.code?e.code+' : ':'')+e.message}
+  d=(d||'').slice(0,230); window.__res.push({n:++cnt,nom,st,d});
+  $('t').insertAdjacentHTML('beforeend',`<tr><td>${cnt}</td><td class="${st}">${st==='ok'?'✔':'✘'}</td><td><b>${nom}</b><br>${d.replace(/</g,'&lt;')}</td></tr>`);
+  if(PAUSES.has(cnt)){ $('etat').textContent='⏸ '+nom; $('next').disabled=false; await new Promise(r=>$('next').onclick=()=>{$('next').disabled=true;r()}); } else if(pause){await wait(1200)} }
+/* ---------- données réelles : BDTOPO via la Géoplateforme ---------- */
+const wfs=async(type,bbox,count)=>{const u=new URL('https://data.geopf.fr/wfs/ows');u.search=new URLSearchParams({SERVICE:'WFS',VERSION:'2.0.0',REQUEST:'GetFeature',TYPENAMES:type,OUTPUTFORMAT:'application/json',SRSNAME:'EPSG:4326',COUNT:count,CQL_FILTER:`BBOX(geometrie,${bbox.join(',')},'EPSG:4326')`});return (await (await fetch(u)).json()).features};
+const BB=[5.368,43.293,5.380,43.300];
+const bat=(await wfs('BDTOPO_V3:batiment',BB,1500));
+const rou=(await wfs('BDTOPO_V3:troncon_de_route',BB,400));
+const cen=g=>{const c=g.type==='Polygon'?g.coordinates[0]:g.coordinates[0][0];let x=0,y=0;c.forEach(p=>{x+=p[0];y+=p[1]});return[x/c.length,y/c.length]};
+const U=[...new Set(bat.map(f=>f.properties.usage_1||'inconnu'))];
+const pal=['#0072b2','#e69f00','#009e73','#cc79a7','#d55e00','#56b4e9','#f0e442','#888888'];
+const FB=bat.map((f,i)=>({type:'Feature',id:i+1,geometry:f.geometry,properties:{cleabs:f.properties.cleabs,nom:f.properties.cleabs?.slice(-6)||('B'+i),usage:f.properties.usage_1||'inconnu',nature:f.properties.nature||'',hauteur:f.properties.hauteur??Math.round(5+((i*7)%40)),annee:Number((f.properties.date_creation||'').slice(0,4))||(1990+(i%30)),logements:f.properties.nombre_de_logements??0}}));
+const FP=FB.map((f,i)=>({type:'Feature',id:100000+i,geometry:{type:'Point',coordinates:cen(f.geometry)},properties:{...f.properties}}));
+const FR=rou.map((f,i)=>({type:'Feature',id:200000+i,geometry:f.geometry,properties:{nom:f.properties.cleabs?.slice(-6)||('R'+i),nature:f.properties.nature||'route',importance:f.properties.importance||'6'}}));
+await step('Données réelles chargées (BDTOPO, Vieux-Port)',()=>`${FB.length} bâtiments, ${FP.length} points, ${FR.length} tronçons`);
+await step('Élément et contrat : AtlasBi.decrire() sans connexion',async()=>{const d=await customElements.get('atlas-bi').decrire();return 'clés: '+Object.keys(d).join(',')+' · commandes: '+Object.keys(d.commandes||{}).length});
+await step('Connexion : atlas-bi pret + ping',async()=>{await carte.pret;const p=await carte.ping();return JSON.stringify(p)});
+const stops=U.map((v,i)=>({value:v,label:v,color:pal[i%pal.length]}));
+const MAN={temps:{champ:'annee',mode:'cumul',pas:1,valeur:2010},interface:{legende:true,temps:{position:'bas-centre'}},layers:[
+ {id:'bati',name:'Bâtiments BDTOPO',geometry_type:'polygon',cle:'cleabs',style:{declarative:{kind:'categorized',field:'usage',stops,opacity:.75}},
+  bulle:{titre:'Bâtiment {nom}',champs:[{champ:'usage',libelle:'Usage'},{champ:'hauteur',libelle:'Hauteur (m)',format:'nombre'},{champ:'annee',libelle:'Année'},{champ:'logements',libelle:'Logements',format:'nombre'}],actions:[{id:'proposer',libelle:'Proposer une correction',style:'principale'},{id:'valider',libelle:'Valider',style:'secondaire'}]},
+  controls:[{id:'f-usage',field:'usage',type:'select',label:'Usage'},{id:'f-haut',field:'hauteur',type:'range',label:'Hauteur'},{id:'f-nom',field:'nom',type:'text',label:'Recherche'},{id:'f-an',field:'annee',type:'time',label:'Année'}]},
+ {id:'routes',name:'Tronçons de route',geometry_type:'line',cle:'nom',style:{declarative:{kind:'single',color:'#444444'}}},
+ {id:'pts',name:'Centroïdes',geometry_type:'point',cle:'cleabs',visible:false,style:{declarative:{kind:'graduated',field:'hauteur',classes:5,palette:'sequentielle'}}}]};
+await step('setScene : 3 couches (polygones catégorisés, lignes, points gradués) + contrôles + bulle',async()=>{const r=await carte.setScene(MAN,{bati:FB,routes:FR,pts:FP});return JSON.stringify(r)});
+await step('fitTo(bati)',()=>carte.fitTo('bati'));
+await step('getLegend(bati)',async()=>{const l=await carte.getLegend('bati');return `${l.type}, ${l.classes?.length} classes, total ${l.total}`});
+await step('getRows(bati, tri hauteur, limite 3)',async()=>{const r=await carte.getRows('bati',{tri:'hauteur',ordre:'desc',limite:3});return JSON.stringify(r).slice(0,200)},{pause:true});
+await step('select(42) -> bulle ouverte, événements select/bulle',async()=>{await carte.select(42);await wait(1200);return JSON.stringify({select:window.__lastSelect?.charge,bulle:window.__ev?.bulle?.charge,origine:window.__lastSelect?.origine})},{pause:true});
+await step('select(null) -> bulle fermée',async()=>{await carte.select(null);await wait(600);return JSON.stringify(window.__ev?.bulle?.charge)});
+await step('highlight([1,2,3,4,5])',()=>carte.highlight([1,2,3,4,5]));
+await step('setFilter select usage (1 valeur)',async()=>JSON.stringify(await carte.setFilter('f-usage',[U[0]])));
+await step('setFilter range hauteur 10-25',async()=>JSON.stringify(await carte.setFilter('f-haut',{min:10,max:25})));
+await step('setFilter text',async()=>JSON.stringify(await carte.setFilter('f-nom',{texte:'1'})),{pause:true});
+await step('retrait des filtres (null ×3)',async()=>{for(const c of['f-usage','f-haut','f-nom'])await carte.setFilter(c,null);return 'ok'});
+await step('setLayerVisibility(pts, true) + setVisual proportionnel',async()=>{await carte.setLayerVisibility('pts',true);await carte.setLayerVisibility('bati',false);return JSON.stringify(await carte.setVisual('pts',{type:'proportionnel',champ:'hauteur',min:3,max:50,rMin:2,rMax:14}))},{pause:true});
+for(const[v,o]of[['heat',{type:'heat',poids:'hauteur',rayon:25}],['grille',{type:'grille',taille:60,champ:'hauteur',metrique:'moyenne'}],['hex',{type:'hex',taille:60,champ:'hauteur',metrique:'moyenne',extrusion:true}],['etats',{type:'etats',champEtat:'usage',etats:Object.fromEntries(U.slice(0,4).map((u,i)=>[u,{forme:['cercle','carre','losange','triangle'][i],fill:pal[i]}])),texte:'hauteur'}],['cercles',{type:'cercles'}]])
+ await step('setVisual '+v,async()=>JSON.stringify(await carte.setVisual('pts',o)),{pause:v!=='cercles'});
+await step('retour polygones (bati visible, pts masqués)',async()=>{await carte.setLayerVisibility('bati',true);await carte.setLayerVisibility('pts',false);return 'ok'});
+await step('flyTo pitch 55 / bearing 30',async()=>JSON.stringify(await carte.flyTo({center:[5.374,43.2965],zoom:17,pitch:55,bearing:30,duration:1200})),{pause:true});
+await step('marges (zone utile) right:300 puis fitTo',async()=>{await carte.setMarges({right:300});await carte.fitTo('bati');return 'ok'},{pause:true});
+await step('marges retirées',()=>carte.flyTo({marges:null}));
+for(const f of['plan','uni','plan-ign','photo','atlas'])await step('setFond '+f,async()=>JSON.stringify(await carte.setFond(f)),{pause:true});
+await step('setTheme (jetons) + getTheme',async()=>{const r=await carte.setTheme({tokens:{'--atlas-principal':'#000091','--atlas-fond':'#ffffff'}}).catch(e=>'refus: '+e.message);const g=await carte.getTheme();return JSON.stringify(r).slice(0,100)+' | '+JSON.stringify(g).slice(0,120)});
+await step('addAdminLayer(commune, dépt 13)',async()=>JSON.stringify(await carte.addAdminLayer('commune',{filtre:{departement:'13'}})),{pause:true});
+await step('addAdminLayer(arrondissement, Marseille)',async()=>JSON.stringify(await carte.addAdminLayer('arrondissement',{filtre:{commune:'13055'}})),{pause:true});
+await step('setStatistique (moyenne de hauteur par commune, agrégat de pts)',async()=>JSON.stringify(await carte.setStatistique('admin-commune',{source:'agregat',couche:'pts',metrique:'moyenne',champ:'hauteur'})).slice(0,200));
+await step('setChoropleth (quantiles, 5 classes)',async()=>JSON.stringify(await carte.setChoropleth('admin-commune',{methode:'quantiles',classes:5,palette:'sequentielle'})).slice(0,200),{pause:true});
+await step('getLegend(admin-commune) + getRows(admin-commune)',async()=>{const l=await carte.getLegend('admin-commune');const r=await carte.getRows('admin-commune',{limite:3});return JSON.stringify(l).slice(0,160)+' | '+JSON.stringify(r).slice(0,160)});
+await step('setUnitFilter(pts, admin-commune, 13055)',async()=>JSON.stringify(await carte.setUnitFilter('pts','admin-commune','13055')));
+await step('addAdminLayer(departement) + drillDown(13) + drillUp',async()=>{const a=await carte.addAdminLayer('departement');const d=await carte.drillDown('admin-departement','13').catch(e=>'drillDown: '+e.message);const u=await carte.drillUp().catch(e=>'drillUp: '+e.message);return JSON.stringify([a.n,a.source,d,u]).slice(0,240)},{pause:true});
+await step('setDrillAuto actif puis inactif',async()=>JSON.stringify([await carte.setDrillAuto({actif:true}),await carte.setDrillAuto({actif:false})]).slice(0,200));
+await step('setHorsLigne(auto)',async()=>JSON.stringify(await carte.setHorsLigne('auto')).slice(0,200));
+await step('removeLayer ×3 (admin-*)',async()=>{const r=[];for(const id of['admin-commune','admin-arrondissement','admin-departement'])try{r.push(id+':'+await carte.removeLayer(id))}catch(e){r.push(id+':x '+e.message)}return r.join(' · ')});
+await step('batch (4 ordres, arret:continuer, 1 invalide)',async()=>JSON.stringify(await carte.batch([{cmd:'setLayerVisibility',args:['bati',true]},{cmd:'select',args:[7]},{cmd:'select',args:[null]},{cmd:'ordre_inconnu'}],{arret:'continuer'})).slice(0,220));
+await step('Erreur attendue : scène invalide',async()=>{try{const r=await carte.setScene({layers:[{id:'x'}]},{});return 'accepté : '+JSON.stringify(r)}catch(e){return 'refusé proprement : '+(e.code||'')+' '+e.message}});
+await step('Erreur attendue : commande inconnue',async()=>{try{await carte.client.appeler('nimportequoi');return 'accepté ?'}catch(e){return 'refusé : '+(e.code||'')+' '+e.message}});
+await step('setTime(2000) + setFilter time',async()=>JSON.stringify([await carte.setTime(2000),await carte.setFilter('f-an',{min:1990,max:2000})]));
+await step('play / pause (lecture du temps)',async()=>{const a=await carte.play({parSeconde:5,boucle:false});await wait(1500);const b=await carte.pause();return JSON.stringify([a,b,window.__ev?.time?.charge])},{pause:true});
+await step('retrait filtre temps',()=>carte.setFilter('f-an',null));
+await step('Rétablir la scène + resize',async()=>{await carte.setScene(MAN,{bati:FB,routes:FR,pts:FP});await carte.resize();return 'ok'});
+$('etat').textContent='terminé';window.__done=true;
+</script></body></html>

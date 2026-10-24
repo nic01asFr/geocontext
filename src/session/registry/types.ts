@@ -100,6 +100,8 @@ export interface EndpointDef {
   retry: RetryPolicy;
   /** Variable d'environnement contenant la clé API (null si pas d'auth) */
   authEnvVar: string | null;
+  /** Le service est inutilisable sans clé (ex. BDNB : 10 lignes par appel en anonyme) : sans clé, la source échoue explicitement au lieu de renvoyer un extrait. */
+  keyRequired?: boolean;
   /**
    * Version du protocole WFS (uniquement pour protocol="wfs").
    * Ex: "2.0.0" pour Géoplateforme, "1.1.0" pour Georisques.
@@ -199,6 +201,8 @@ export interface AttributeWithFallbackPivot {
   };
   /** Clé de cache dans context.data pour mémoriser le format trouvé */
   cacheKey: string;
+  /** Fallback par préfixe (LIKE 'valeur%') au lieu de l'égalité : PLUi dont les partitions portent un suffixe (DU_<siren>_A, _B…). */
+  fallbackLike?: boolean;
   /**
    * Préfixe à ajouter aux valeurs (primary et fallback) avant construction du filtre.
    * Ex: "DU_" → partition = 'DU_25056' ou 'DU_200067874' pour le GPU.
@@ -285,6 +289,8 @@ export interface FieldDef {
   type: FieldType;
   /** Unité d'affichage (ex: "m²", "€", "hab", "ha") */
   unit?: string;
+  /** "sum" : grandeur extensive (population, surface, nombre…) dont la somme a un sens. Sinon (intensité, ratio, hauteur, taux…) : jamais de somme, médiane et min–max. */
+  aggregate?: "sum";
   /**
    * Valeurs possibles pour un champ de type "enum".
    * Clé = valeur technique, valeur = label français.
@@ -511,6 +517,12 @@ export interface SourceDef {
     lon: string;
     lat: string;
   };
+
+  /**
+   * Champ texte « lat,lon » (ex. _geopoint de l'ADEME). Les entrées dont la valeur est absente
+   * ou invalide sont écartées de la couche et comptées (jamais complétées).
+   */
+  geoPointField?: string;
 }
 
 // ==========================================================================
@@ -658,6 +670,9 @@ export interface SourceResult {
   /** true si le résultat est tronqué (nombre retourné < nombre total) */
   truncated?: boolean;
 
+  /** Nombre d'entités lues mais absentes de la couche faute de position valide (jamais complétées) */
+  sansPosition?: number;
+
   /** Filtre partition trouvé (pour le cache) */
   resolvedPartition?: string;
 }
@@ -670,6 +685,10 @@ export interface SourceResult {
  * géométries (potentiellement volumineuses) par le transport MCP.
  */
 export interface LayerSpec {
+  /** Entités lues mais écartées de la couche (position absente ou aberrante) : absentes de la carte ET du tableau, signalées à l'écran. */
+  ecartees?: number;
+  /** Constat de chaque entité écartée de la carte (jamais corrigée) : de quoi la signaler à la source, à la main. */
+  anomalies?: Array<{ ligne: number; id: string | null; raison: string; valeur: string | null; distanceKm?: number }>;
   /** URL de base du service WFS */
   wfsUrl: string;
 
@@ -731,7 +750,7 @@ export interface LayerSpec {
   filters?: { key: string; label: string; type: string; values?: Record<string, string> }[];
 
   /** Définition des champs pour le data-panel (labels, types, unités) */
-  fields?: { key: string; label: string; type: string; primary?: boolean; unit?: string }[];
+  fields?: { key: string; label: string; type: string; primary?: boolean; unit?: string; aggregate?: "sum" }[];
 
   /** Style enrichi généré par le système de styling automatique */
   styleRecipe?: {
@@ -750,6 +769,10 @@ export interface LayerSpec {
     classification: {
       method: "categorical" | "graduated" | "single";
       field?: string | null;
+      colorMap?: Record<string, string>;
+      breaks?: number[];
+      colors?: string[];
+      color?: string;
     };
     /** Template de label pour popups */
     labelTemplate?: string | null;

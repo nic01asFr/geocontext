@@ -116,13 +116,15 @@ export const HYDRO_QUALITE_STATIONS: SourceDef = {
   },
   fields: [
     { key: "code_bss", label: "Code BSS", type: "string", primary: true },
+    { key: "libelle_pe", label: "Station", type: "string", primary: true },
     { key: "nom_commune", label: "Commune", type: "string", primary: false },
-    { key: "date_debut_mesure", label: "Début mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "date_fin_mesure", label: "Fin mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: false },
-    { key: "longitude", label: "Longitude", type: "number", primary: false },
-    { key: "latitude", label: "Latitude", type: "number", primary: false },
+    { key: "date_debut_mesure", label: "Début mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: true },
+    { key: "date_fin_mesure", label: "Fin mesures", type: "date", transforms: ["parse_date_iso", "format_date_fr"], primary: true },
+    { key: "nb_mesures_piezo", label: "Nombre de mesures", type: "number", primary: true },
+    { key: "x", label: "Longitude", type: "number", primary: false },
+    { key: "y", label: "Latitude", type: "number", primary: false },
   ],
-  geoFields: { lon: "longitude", lat: "latitude" },
+  geoFields: { lon: "x", lat: "y" }, // Hub'Eau renvoie la position dans x (longitude) et y (latitude)
   priority: "optional",
 };
 

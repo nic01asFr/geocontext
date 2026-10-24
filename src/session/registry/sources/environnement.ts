@@ -34,7 +34,7 @@ const PATRINAT_FIELDS = [
   { key: "nom_site", label: "Nom", type: "string" as const, primary: true },
   { key: "id_local", label: "Identifiant", type: "string" as const, primary: false },
   { key: "date_crea", label: "Date de création", type: "string" as const, primary: false },
-  { key: "surf_off", label: "Surface officielle", type: "number" as const, unit: "ha", primary: false },
+  { key: "surf_off", label: "Surface officielle", type: "number" as const, unit: "ha", aggregate: "sum" as const, primary: false },
   { key: "url_fiche", label: "Fiche", type: "string" as const, primary: false },
   { key: "gest_site", label: "Gestionnaire", type: "string" as const, primary: false },
   { key: "geom", label: "Géométrie", type: "geometry" as const },

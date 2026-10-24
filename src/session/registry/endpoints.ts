@@ -101,8 +101,9 @@ const GPF_ALTIMETRIE: EndpointDef = {
  * API REST avec 400+ champs par bâtiment : énergie (DPE agrégés),
  * structure, matériaux, risques, adresses, parcelles.
  *
- * Authentification par clé API (env BDNB_API_KEY).
- * Limite : 500 résultats par page.
+ * Clé API (env BDNB_API_KEY) OBLIGATOIRE : en anonyme l'API plafonne à 10 lignes par appel
+ * (réponse 206 partielle) — inutilisable sur une commune. Sans clé, les sources BDNB échouent
+ * explicitement ; elles restent optionnelles dans le catalogue.
  */
 const BDNB: EndpointDef = {
   id: "bdnb",
@@ -113,6 +114,7 @@ const BDNB: EndpointDef = {
   timeoutMs: 15_000,
   retry: DEFAULT_RETRY,
   authEnvVar: "BDNB_API_KEY",
+  keyRequired: true,
 };
 
 // ==========================================================================
@@ -197,18 +199,18 @@ const DVF: EndpointDef = {
  * ADEME DPE — Diagnostics de Performance Énergétique détaillés.
  *
  * Données DPE unitaires avec tous les champs techniques.
- * Authentification par clé API (env ADEME_API_KEY).
- * ⚠ Liaison parcelle non fiable — passer par BDNB (matching via BAN).
+ * Sans clé. Filtres data-fair : <champ>_eq=valeur. Chaque DPE porte id_rnb (lien RNB direct)
+ * et identifiant_ban / code_insee_ban ; pas de lien parcelle fiable.
  */
 const ADEME_DPE: EndpointDef = {
   id: "ademe_dpe",
-  baseUrl: "https://data.ademe.fr/data-fair/api/v1/datasets/dpe-v2-logements-existants",
+  baseUrl: "https://data.ademe.fr/data-fair/api/v1/datasets/dpe03existant",
   protocol: "rest_json",
   nativeCrs: "EPSG:4326",
   maxFeatures: 1000,
   timeoutMs: 15_000,
   retry: DEFAULT_RETRY,
-  authEnvVar: "ADEME_API_KEY",
+  authEnvVar: null,
 };
 
 // ==========================================================================

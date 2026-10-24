@@ -71,6 +71,7 @@ export const BATI_BDTOPO_COMMUNE: SourceDef = {
     { key: "nombre_de_logements", label: "Logements", type: "number", primary: true },
     { key: "nombre_d_etages", label: "Étages", type: "number", primary: false },
     { key: "etat_de_l_objet", label: "État", type: "string", primary: false },
+    { key: "date_modification", label: "Dernière modification (BD TOPO)", type: "date", primary: false },
     { key: "geometrie", label: "Géométrie", type: "geometry" },
   ],
   constraints: {
@@ -273,7 +274,7 @@ export const BATIMENT_BDNB: SourceDef = {
   fields: [
     { key: "batiment_groupe_id", label: "ID BDNB", type: "string", primary: false },
     { key: "rnb_id", label: "ID RNB", type: "string", primary: true },
-    { key: "s_geom_groupe", label: "Surface au sol", type: "number", unit: "m²", transforms: ["round_2"], primary: true },
+    { key: "s_geom_groupe", label: "Surface au sol", type: "number", unit: "m²", aggregate: "sum", transforms: ["round_2"], primary: true },
     { key: "nb_log", label: "Nombre de logements", type: "number", primary: true },
     { key: "annee_construction", label: "Année de construction", type: "number", primary: true },
     { key: "mat_mur_txt", label: "Matériau murs", type: "string", primary: false },
@@ -281,7 +282,7 @@ export const BATIMENT_BDNB: SourceDef = {
     { key: "hauteur_mean", label: "Hauteur moyenne", type: "number", unit: "m", transforms: ["round_2"], primary: false },
     { key: "l_nom_voie", label: "Adresse", type: "string", primary: false },
   ],
-  priority: "recommended",
+  priority: "optional", // clé BDNB_API_KEY requise : écartée du catalogue par défaut
 };
 
 // ==========================================================================

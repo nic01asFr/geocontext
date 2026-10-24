@@ -93,6 +93,9 @@ function getRamp(theme: string): string[] {
 // Génération de couleurs catégorielles dans une famille de teinte
 // ==========================================================================
 
+/** Couleurs officielles de l'étiquette DPE (arrêté du 31 mars 2021), de A (sobre) à G (très énergivore). */
+const DPE_COULEURS: Record<string, string> = { A: "#319834", B: "#33cc31", C: "#cbfc34", D: "#fbfe06", E: "#fbcc05", F: "#fc9935", G: "#fc0205" };
+
 function generateCategoricalColors(
   baseHue: number,
   count: number,
@@ -146,6 +149,13 @@ export function deriveStyleRecipe(
     return buildPluStyle(source, features, geomType, legendTitle);
   }
 
+  // ── Cas spécial DPE : étiquette A–G dans les couleurs officielles (jamais une palette dérivée du thème) ──
+  const champDpe = source.fields.find((f) => f.key === "etiquette_dpe");
+  if (champDpe) {
+    const fake = { ...champDpe, type: "enum", enumValues: Object.fromEntries(Object.keys(DPE_COULEURS).map((k) => [k, "Étiquette " + k])) } as FieldDef;
+    return buildCategoricalStyle(source, fake, features, geomType, themeColors, legendTitle, DPE_COULEURS);
+  }
+
   // ── Chercher un champ classifiant ──
   const enumField = findClassifyingEnumField(source);
   if (enumField) {
@@ -170,7 +180,7 @@ function detectGeometryType(
   features: Record<string, unknown>[],
 ): "point" | "line" | "polygon" {
   // Depuis geoFields → points REST
-  if (source.geoFields) return "point";
+  if (source.geoFields || source.geoPointField) return "point";
 
   // Depuis les features si elles ont des géométries inline
   for (const f of features) {
@@ -274,10 +284,11 @@ function buildCategoricalStyle(
   geomType: "point" | "line" | "polygon",
   themeColors: { h: number; s: number; base: string; stroke: string },
   legendTitle: string,
+  couleurs?: Record<string, string>,
 ): StyleRecipe {
   const enumValues = field.enumValues || {};
   const keys = Object.keys(enumValues);
-  const colors = generateCategoricalColors(themeColors.h, keys.length);
+  const colors = couleurs ? keys.map((k) => couleurs[k]) : generateCategoricalColors(themeColors.h, keys.length);
   const colorMap: Record<string, string> = {};
   keys.forEach((k, i) => { colorMap[k] = colors[i]; });
 

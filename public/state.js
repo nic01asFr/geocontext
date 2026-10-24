@@ -63,6 +63,7 @@ const GeoState = {
       }
     } catch (e) {
       console.warn("[state] Impossible de lire le contexte:", e.message);
+      if (window.GeoBanner) GeoBanner("Le territoire courant n'a pas pu être relu auprès du serveur (" + e.message + "). L'affichage peut ne pas correspondre.", "erreur");
     }
   },
 

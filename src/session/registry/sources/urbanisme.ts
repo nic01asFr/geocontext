@@ -35,9 +35,11 @@ import type { SourceDef, UserFilterDef } from "../types.js";
  * Pivot pour wfs_du:document — filtre par grid_name (code_insee direct, sans préfixe).
  */
 const DOCUMENT_PIVOT = {
-  strategy: "attribute" as const,
+  strategy: "attribute_with_fallback" as const,
   attribute: "grid_name",
-  from: "context.code" as const,
+  primary: { from: "context.code" as const },
+  fallback: { from: ["hierarchy.epci.siren" as const], separator: "" },
+  cacheKey: "_grid_document",
 };
 
 /**
@@ -55,6 +57,7 @@ const GPU_PARTITION_PIVOT = {
   },
   cacheKey: "_partition_gpu",
   valuePrefix: "DU_",
+  fallbackLike: true,
 };
 
 /**

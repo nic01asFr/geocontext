@@ -1,0 +1,38 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>Atlas BI — compléments</title>
+<style>body{margin:0;font:13px system-ui;display:grid;grid-template-columns:1fr 440px;height:100vh}atlas-bi{display:block;height:100vh}aside{overflow:auto;border-left:1px solid #ccc;padding:8px;background:#f6f7f9}td{border-bottom:1px solid #ddd;font-size:12px;padding:2px 4px;vertical-align:top}.ok{color:#0a7a3b}.ko{color:#b3261e}</style></head><body>
+<atlas-bi id="carte" src="https://nic01asfr.github.io/Widgets-Grist/atlas/index.html" evenements-api delai="30000"></atlas-bi>
+<aside><b>Compléments BI</b> <span id="etat"></span><table id="t"></table></aside>
+<script type="module">
+await import('https://nic01asfr.github.io/Widgets-Grist/atlas/lib/bi/atlas-bi-element.js');
+const c=document.getElementById('carte'),$=id=>document.getElementById(id),wait=ms=>new Promise(r=>setTimeout(r,ms));
+window.__res=[];window.__ev=[];
+for(const t of['select','filter','time','legend','layer','action','error','connexion','theme','edit','edition','camera'])c.addEventListener('atlas-bi-'+t,e=>{window.__ev.push(t+':'+(e.detail?.origine||'')+':'+JSON.stringify(e.detail).slice(0,90))});
+let n=0;async function step(nom,fn){let st='ok',d='';try{const r=await fn();d=typeof r==='string'?r:JSON.stringify(r)}catch(e){st='ko';d=(e.code?e.code+' : ':'')+e.message}d=(d||'').slice(0,320);window.__res.push({n:++n,nom,st,d});$('t').insertAdjacentHTML('beforeend',`<tr><td>${n}</td><td class="${st}">${st=='ok'?'✔':'✘'}</td><td><b>${nom}</b><br>${d.replace(/</g,'&lt;')}</td></tr>`);$('etat').textContent=n}
+const J=u=>fetch(u).then(r=>r.json());
+const PTS=(await J('/geo-test/pts.geojson')).features.map((f,i)=>({...f,properties:{...f.properties,annee:1990+(i%30)}}));
+const MAN=await J('/geo-test/manifeste.json');const CH=await J('/geo-test/charte.json');
+MAN.temps={champ:'annee',mode:'cumul',pas:1,valeur:2010};
+await step('setScene pts (300, annee)',async()=>{const r=await c.setScene(MAN,{pts:PTS});return r});
+await step('setTheme(charte valide) + getTheme',async()=>{const r=await c.setTheme(CH);const g=await c.getTheme();return {r,g:JSON.stringify(g).slice(0,160)}});
+await step('setTheme base contraste-eleve',async()=>{const r=await c.setTheme({base:'contraste-eleve'}).catch(e=>'refus '+e.message);return r});
+await step('setFond charte.fond.mode / plan / uni',async()=>{const a=[];for(const f of['plan','uni','atlas']){a.push(await c.setFond(f).then(()=>f+' ok',e=>f+' ✘ '+e.message))}return a});
+await step('setEdition(pts,true)+updateFeature+getRows',async()=>{const e=await c.setEdition('pts',true);const id=PTS[0].id;const u=await c.updateFeature('pts',id,{usage:'Sportif'});const rows=await c.getRows('pts');const r0=(rows.rows||rows).find?.(x=>(x.id??x.featureId)==id);return {e,u,r0:JSON.stringify(r0).slice(0,150)}});
+await step('updateFeature id inconnu → erreur',async()=>c.updateFeature('pts',999999,{usage:'X'}).then(r=>'accepté '+JSON.stringify(r),e=>'refus '+e.message));
+await step('setEdition(pts,false) puis updateFeature → refus',async()=>{await c.setEdition('pts',false);return c.updateFeature('pts',PTS[1].id,{usage:'X'}).then(r=>'accepté '+JSON.stringify(r),e=>'refus '+e.message)});
+// visible:false
+const A=PTS.slice(0,100).map((f,i)=>({...f,id:i+1})),B=PTS.slice(100,200).map((f,i)=>({...f,id:i+1}));
+await step('REPRO visible:false (2 couches, b cachée, rouge)',async()=>{const m={layers:[{id:'a',name:'A bleu',geometry_type:'point',cle:'ref',style:{declarative:{kind:'single',color:'#0057b8'}}},{id:'b',name:'B rouge cachée',geometry_type:'point',cle:'ref',visible:false,style:{declarative:{kind:'single',color:'#e1000f'}}}]};const r=await c.setScene(m,{a:A,b:B});await wait(2500);return r});
+await step('setLayerVisibility(b,true) puis false',async()=>{const x=await c.setLayerVisibility('b',true);await wait(1500);const y=await c.setLayerVisibility('b',false);return [x,y]});
+// time anomaly
+await step('TEMPS : setScene+setTime(2000)',async()=>{await c.setScene(MAN,{pts:PTS});await wait(1500);return await c.setTime(2000)});
+await step('TEMPS : addAdminLayer(departement) puis setTime(2005)',async()=>{await c.addAdminLayer('departement');return await c.setTime(2005).catch(e=>'refus '+e.message)});
+await step('TEMPS : removeLayer(admin-departement) puis setTime(2008)',async()=>{await c.removeLayer('admin-departement');return await c.setTime(2008).catch(e=>'refus '+e.message)});
+// choropleth host table
+await step('Choroplèthe source hote (table inline, divergente, centre, gris, seuilPetit, rapport)',async()=>{const tab=[['13','1000',2e6],['83','-500',1e6],['84','0',5e5],['04','300',16e4],['05','-100',14e4],['06','800',11e5],['2A','50',16e4]].map(([code,v,p])=>({code,valeur:v,pop:p}));const m={layers:[{id:'d',name:'Dép. table',geometry_type:'polygon',admin:{niveau:'departement'},visuel:{type:'choroplethe',niveau:'departement',source:'hote',table:'tab',cleTable:'code',champTable:'valeur',champDen:'pop',methode:'manuelle',bornes:[-500,0,500],palette:'divergente',centre:0,valeurSansDonnee:'gris',seuilPetit:100,titre:'Solde (test)'}},{id:'tab',name:'Table hôte',type:'table',geometry_type:'none'}]};const r=await c.setScene(m,{tab});await wait(3000);return r});
+await step('Diagnostics : ids doublons / non entiers / géométrie nulle / 4 actions / action invalide',async()=>{const bad=[{type:'Feature',id:1,properties:{ref:'a'},geometry:{type:'Point',coordinates:[5.37,43.29]}},{type:'Feature',id:1,properties:{ref:'dup'},geometry:{type:'Point',coordinates:[5.38,43.29]}},{type:'Feature',id:'x',properties:{ref:'str'},geometry:{type:'Point',coordinates:[5.39,43.29]}},{type:'Feature',id:4,properties:{ref:'nogeom'},geometry:null},{type:'Feature',id:5,properties:{ref:'hors'},geometry:{type:'Point',coordinates:[500,900]}}];const m={layers:[{id:'z',name:'Z',geometry_type:'point',cle:'ref',style:{declarative:{kind:'single',color:'#000091'}},bulle:{titre:'{ref}',actions:[{id:'a1',libelle:'1'},{id:'a2',libelle:'2'},{id:'a3',libelle:'3'},{id:'a4',libelle:'4'},{id:'Bad Id!',libelle:'x'}]}}]};const r=await c.setScene(m,{z:bad});await wait(1500);return r});
+await step('Scène sans geometry_type',async()=>c.setScene({layers:[{id:'q',name:'Q'}]},{q:[]}).then(r=>'accepté '+JSON.stringify(r),e=>'refus '+e.message));
+await step('Rétablir scène pts',async()=>c.setScene(MAN,{pts:PTS}));
+await step('setHorsLigne(true) + setFond(photo) + addAdminLayer(commune)',async()=>{const h=await c.setHorsLigne(true);const f=await c.setFond('photo').then(r=>'photo accepté',e=>'photo refus '+e.message);const a=await c.addAdminLayer('commune',{filtre:{departement:'13'}}).then(r=>'commune ok '+JSON.stringify(r).slice(0,120),e=>'commune refus '+e.message);const r2=await c.addAdminLayer('region').then(r=>'région ok repli='+r.repli+' source='+r.source,e=>'région refus '+e.message);return {h,f,a,r2}});
+await step('setHorsLigne(auto) + setFond(plan)',async()=>{const h=await c.setHorsLigne('auto');await c.setFond('plan');return h});
+$('etat').textContent='fini ('+n+')';window.__fini=true;
+</script></body></html>

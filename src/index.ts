@@ -30,7 +30,13 @@ import {
 import { dirname, join, extname } from "path";
 import { fileURLToPath } from "url";
 import { readFileSync, existsSync, createReadStream, statSync } from "fs";
+import { routeTuiles } from "./tiles.js";
+import { routeLiens } from "./liens/iris.js";
+import { routeElus } from "./liens/elus.js";
+import { routeEpci } from "./liens/epci.js";
 import { createServer, type IncomingMessage, type ServerResponse } from "http";
+import { routeAgent, oublierSession } from "./agent/agent.js";
+import type { GeoContextSession as GCSession } from "./session/session.js";
 import { randomUUID } from "crypto";
 
 import { GeoContextSession } from "./session/session.js";
@@ -373,6 +379,8 @@ async function startHttp(): Promise<void> {
 
   // Map de transports actifs par sessionId
   const transports = new Map<string, StreamableHTTPServerTransport>();
+  // Session GeoContext de chaque page, pour que l'agent intégré opère la MÊME session que l'interface
+  const sessionsParId = new Map<string, GCSession>();
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = req.url ?? "/";
@@ -396,6 +404,16 @@ async function startHttp(): Promise<void> {
         res.end();
         return;
       }
+    }
+
+    if (pathname.startsWith("/tiles/") && (await routeTuiles(req, res, pathname, url))) return;
+
+    if (pathname.startsWith("/liens/") && ((await routeLiens(req, res, pathname, url)) || (await routeElus(req, res, pathname, url)) || (await routeEpci(req, res, pathname, url)))) return;
+
+    if (pathname.startsWith("/agent/")) {
+      try { await routeAgent(req, res, pathname, sessionsParId); }
+      catch (e: any) { console.error("[agent] route:", e); if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); } res.end(JSON.stringify({ error: "Erreur interne de l'agent : " + String(e?.message || e) })); }
+      return;
     }
 
     // ── Fichiers statiques (public/) ──
@@ -439,12 +457,12 @@ async function startHttp(): Promise<void> {
       });
 
       const server = createMcpServer();
-      configureServer(server);
+      const gcs = configureServer(server);
 
       // Nettoyer à la fermeture
       transport.onclose = () => {
         const sid = transport.sessionId;
-        if (sid) transports.delete(sid);
+        if (sid) { transports.delete(sid); sessionsParId.delete(sid); oublierSession(sid); }
       };
 
       await server.connect(transport);
@@ -453,6 +471,7 @@ async function startHttp(): Promise<void> {
       // Stocker le transport après handleRequest (sessionId assigné lors de initialize)
       if (transport.sessionId) {
         transports.set(transport.sessionId, transport);
+        sessionsParId.set(transport.sessionId, gcs);
       }
       return;
     }

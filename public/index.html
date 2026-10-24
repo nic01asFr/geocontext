@@ -21,13 +21,17 @@
     <span class="logo">geocontext</span>
   </div>
   <div class="topbar-center">
-    <input id="search-input" type="text" placeholder="Lieu, code INSEE, coordonnées…" autocomplete="off">
-    <button id="search-btn" title="Rechercher">&#x1F50D;</button>
+    <div class="searchbox" role="search">
+      <span class="searchbox-ico" data-icon="search" data-icon-size="17"></span>
+      <input id="search-input" type="text" placeholder="Lieu, code INSEE, coordonnées…" autocomplete="off" aria-label="Rechercher un lieu">
+      <kbd class="searchbox-kbd" title="Raccourci : touche /">/</kbd>
+      <button id="search-btn" title="Rechercher" aria-label="Rechercher">Aller</button>
+    </div>
   </div>
   <div class="topbar-right">
     <span id="status-indicator" class="status offline" title="Déconnecté"></span>
-    <button id="chat-toggle" title="Ouvrir l'assistant">💬</button>
-    <button id="settings-btn" title="Paramètres">&#x2699;</button>
+    <button id="theme-toggle" class="iconbtn" title="Thème clair / sombre" aria-label="Basculer le thème clair ou sombre" data-icon="contrast"></button>
+    <button id="chat-toggle" class="iconbtn" title="Ouvrir le panneau de commandes" aria-label="Panneau de commandes" data-icon="terminal"></button>
   </div>
 </header>
 
@@ -38,13 +42,6 @@
 
   <!-- ── Panneau gauche : contexte ── -->
   <aside id="panel-context">
-    <section id="hierarchy">
-      <h3>Territoire</h3>
-      <div id="hierarchy-tree" class="tree">
-        <p class="placeholder">Recherchez un lieu pour commencer.</p>
-      </div>
-    </section>
-
     <section id="themes">
       <h3>Thèmes</h3>
       <div id="themes-list" class="theme-buttons"></div>
@@ -61,12 +58,12 @@
     <div id="map-container">
       <div id="map"></div>
       <div id="map-overlay">
-        <div id="territory-badge" class="hidden"></div>
+        <nav id="territory-badge" class="hidden" aria-label="Navigation territoriale"></nav>
       </div>
     </div>
     <div id="data-panel" class="hidden">
       <div id="data-header">
-        <h3 id="data-title">Données</h3>
+        <h3 id="data-title">Données</h3><span id="data-resume" class="data-resume" aria-live="polite"></span>
         <button id="data-close" title="Fermer">&times;</button>
       </div>
       <div id="data-content"></div>
@@ -74,19 +71,25 @@
   </div>
 
   <!-- ── Panneau droite : chat ── -->
-  <aside id="panel-chat">
+  <aside id="panel-chat" class="collapsed">
     <div id="chat-header">
-      <h3>Assistant</h3>
-      <span id="chat-mode" class="badge">direct</span>
+      <h3>Commandes</h3>
+      <button id="chat-reset" class="iconbtn sm" title="Nouvelle conversation" aria-label="Nouvelle conversation" data-icon="refresh" data-icon-size="15"></button>
+      <span id="chat-mode" class="badge" title="Aucun agent conversationnel n'est branché">sans agent</span>
     </div>
     <div id="chat-messages">
       <div class="msg assistant">
-        Bienvenue ! Je suis votre assistant. Posez-moi une question ou tapez <strong>/help</strong>.
+        Je comprends un lieu, un thème ou une action du panneau, et les commandes ci-dessous. Je ne réponds pas aux questions libres.
       </div>
     </div>
+    <div id="chat-chips">
+      <button class="chip" data-cmd="/context"><span data-icon="info" data-icon-size="14"></span>Contexte</button>
+      <button class="chip" data-cmd="/back"><span data-icon="back" data-icon-size="14"></span>Retour</button>
+      <button class="chip" data-cmd="/help"><span data-icon="terminal" data-icon-size="14"></span>Aide</button>
+    </div>
     <div id="chat-input-area">
-      <textarea id="chat-input" placeholder="Posez une question…" rows="2"></textarea>
-      <button id="chat-send" title="Envoyer">&#x27A4;</button>
+      <textarea id="chat-input" placeholder="Lieu, thème ou commande…" rows="1"></textarea>
+      <button id="chat-send" title="Envoyer" aria-label="Envoyer" data-icon="send" data-icon-size="17"></button>
     </div>
   </aside>
 
@@ -95,10 +98,11 @@
 <!-- ================================================================ -->
 <!-- Scripts                                                           -->
 <!-- ================================================================ -->
+<script src="icons.js"></script>
 <script src="mcp-client.js"></script>
 <script src="state.js"></script>
 <script src="styles.js"></script>
-<script src="map.js"></script>
+<script>document.write('<script src="'+(new URLSearchParams(location.search).get("carte")==="maplibre"?"map.js":"map-atlas.js")+'"><\/script>')</script>
 <script src="geo-fetcher.js"></script>
 <script src="context-panel.js"></script>
 <script src="data-panel.js"></script>

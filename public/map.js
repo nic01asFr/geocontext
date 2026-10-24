@@ -60,12 +60,10 @@ const GeoMap = {
           "osm-light": {
             type: "raster",
             tiles: [
-              "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              "https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
-              "https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}@2x.png",
+              "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&FORMAT=image/png&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}",
             ],
             tileSize: 256,
-            attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OSM</a> &copy; <a href='https://carto.com/'>CARTO</a>",
+            attribution: "&copy; IGN - Plan IGN (Géoplateforme)",
             maxzoom: 19,
           },
         },
@@ -691,6 +689,7 @@ const GeoMap = {
 
   /** Met à jour le badge territoire sur la carte. */
   _updateBadge(ctx) {
+    return; // le fil territorial est rendu par ContextPanel.renderHierarchy
     const badge = document.getElementById("territory-badge");
     if (!ctx.level || !ctx.name) {
       badge.classList.add("hidden");

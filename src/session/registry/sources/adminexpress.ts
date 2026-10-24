@@ -59,7 +59,7 @@ export const COMMUNE_IDENTITE: SourceDef = {
   fields: [
     { key: "code_insee", label: "Code INSEE", type: "string", primary: true },
     { key: "nom_officiel", label: "Nom", type: "string", primary: true },
-    { key: "population", label: "Population", type: "number", unit: "hab", primary: true },
+    { key: "population", label: "Population", type: "number", unit: "hab", aggregate: "sum", primary: true },
     {
       key: "superficie_cadastrale",
       label: "Superficie",

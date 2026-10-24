@@ -31,7 +31,7 @@ class McpClient {
    * Envoie une requête JSON-RPC au serveur MCP.
    * Gère le header mcp-session-id et le parsing SSE.
    */
-  async _request(method, params = {}) {
+  async _request(method, params = {}, _reprise = false) {
     const id = this._nextId();
     const body = {
       jsonrpc: "2.0",
@@ -53,6 +53,21 @@ class McpClient {
       headers,
       body: JSON.stringify(body),
     });
+
+    // Session perdue côté serveur (redémarrage, expiration) : 400 « not initialized » ou 404 -> on rouvre UNE fois puis on rejoue
+    if ((response.status === 400 || response.status === 404) && this.sessionId && method !== "initialize" && !_reprise) {
+      const perdue = response.status === 404 || /not initialized|session/i.test(await response.clone().text().catch(() => ""));
+      if (perdue) {
+        const ancienne = this.sessionId;
+        this.sessionId = null; this.connected = false;
+        await this.initialize();
+        this.sessionsPerdues = (this.sessionsPerdues || 0) + 1;
+        if (this.onSessionReset) await this.onSessionReset({ ancienne, nouvelle: this.sessionId, methode: method, params });
+        return this._request(method, params, true);
+      }
+    }
+    if (!response.ok && !(response.headers.get("content-type") || "").includes("json") && !(response.headers.get("content-type") || "").includes("event-stream"))
+      throw new Error(`HTTP ${response.status} sur ${method}`);
 
     // Capturer le session ID
     const sid = response.headers.get("mcp-session-id");
@@ -140,6 +155,7 @@ class McpClient {
       clientInfo: { name: "geocontext-web", version: "1.0.0" },
     });
     this.connected = true;
+    this.serverInfo = result?.serverInfo || null;
 
     // Envoyer la notification initialized
     await this._notify("notifications/initialized");

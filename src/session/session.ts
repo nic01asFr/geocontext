@@ -74,6 +74,10 @@ export class GeoContextSession {
     return this.ctx;
   }
 
+  /** État de l'affichage tel que la page le déclare (filtres validés, comptes relus) ; informatif, jamais une preuve. */
+  private surface: Record<string, any> | null = null;
+  getSurface(): Record<string, any> | null { return this.surface; }
+
   // ========================================================================
   // Tools dynamiques — construction
   // ========================================================================
@@ -135,7 +139,21 @@ export class GeoContextSession {
         result = this.handleBack();
         break;
       case "map":
-        result = this.handleMap(args);
+        result = await this.handleMap(args);
+        break;
+      case "ui_poll":
+        result = await this.handleUiPoll();
+        break;
+      case "ui_state": {
+        const e = (args as any).etat;
+        const taille = e ? JSON.stringify(e).length : 0;
+        if (taille > 40000) { result = { content: [{ type: "text", text: "État d'affichage trop volumineux." }], isError: true }; break; }
+        this.surface = e && typeof e === "object" ? e : null;
+        result = { content: [{ type: "text", text: "ok" }] };
+        break;
+      }
+      case "ui_ack":
+        result = this.handleUiAck(args);
         break;
       case "select":
         result = await this.handleSelect(args);
@@ -146,6 +164,7 @@ export class GeoContextSession {
       default:
         result = {
           content: [{ type: "text", text: `Tool inconnu : ${name}` }],
+          isError: true,
         };
     }
 
@@ -178,7 +197,7 @@ export class GeoContextSession {
     const target = String(args.target ?? args.territoire ?? "");
 
     if (!target) {
-      return textResult("Veuillez préciser une cible de navigation.");
+      return errorResult("Veuillez préciser une cible de navigation.");
     }
 
     // Si la cible est un thème connu du niveau actuel → rediriger vers action
@@ -192,7 +211,7 @@ export class GeoContextSession {
     // Résoudre comme territoire
     const result = await resolveTerritory(target, this.ctx);
     if (result.success === false) {
-      return textResult(result.error);
+      return errorResult(result.error);
     }
 
     // Sauvegarder dans l'historique
@@ -218,6 +237,7 @@ export class GeoContextSession {
 
     return textResult(
       `Navigué vers ${result.name} (${result.level}, ${result.code}).\n` +
+      (result.note ? `${result.note}\n` : "") +
       `Thèmes disponibles : ${themeLabels.join(", ")}.`,
       this.ctx,
     );
@@ -240,7 +260,7 @@ export class GeoContextSession {
     const userFilters = args.filter as Record<string, unknown> | undefined;
 
     if (!this.ctx.level || !this.ctx.code) {
-      return textResult("Aucun territoire sélectionné. Utilisez navigate d'abord.");
+      return errorResult("Aucun territoire sélectionné. Utilisez navigate d'abord.");
     }
 
     const themes = registry.getThemes(this.ctx.level);
@@ -320,7 +340,7 @@ export class GeoContextSession {
       const hint = this.ctx.theme
         ? `Actions dans ${THEME_META[this.ctx.theme].label} : ${registry.getActions(this.ctx.level, this.ctx.theme).join(", ")}. Autres thèmes : ${themes.filter((t) => t !== this.ctx.theme).join(", ")}.`
         : `Thèmes disponibles : ${themes.join(", ")}.`;
-      return textResult(`Action "${action}" inconnue. ${hint}`);
+      return errorResult(`Action "${action}" inconnue. ${hint}`);
     }
 
     // Changer de thème si résolution implicite
@@ -367,7 +387,7 @@ export class GeoContextSession {
   ): Promise<CallToolResult> {
     const query = String(args.query ?? args.q ?? "");
     if (!query) {
-      return textResult("Veuillez préciser un terme de recherche.");
+      return errorResult("Veuillez préciser un terme de recherche.");
     }
 
     // 1. Tenter comme navigation (lieu)
@@ -410,7 +430,8 @@ export class GeoContextSession {
 
     // Restaurer le contexte précédent en gardant la pile actuelle
     const currentHistory = this.ctx.history;
-    this.ctx = { ...prev, history: currentHistory };
+    // les couches vivent dans la page, qui les recharge à la demande : on ne ressuscite pas une liste que l'affichage n'a plus
+    this.ctx = { ...prev, layers: [], history: currentHistory };
 
     let label: string;
     if (prev.snapshotType === "theme" && this.ctx.theme && this.ctx.name) {
@@ -433,68 +454,107 @@ export class GeoContextSession {
    *   - filter — appliquer un filtre attributaire sur une couche
    *   - thematic — colorer une couche selon un attribut
    */
-  private handleMap(args: Record<string, unknown>): CallToolResult {
-    const operation = String(args.operation ?? "");
-    const layerName = String(args.layer ?? "");
+  /**
+   * Retrouve une couche par son nom exact, par son préfixe thématique
+   * (ex. « batiments » → bati_bdtopo_commune) ou, s'il n'y en a qu'une, par défaut.
+   */
+  private resolveLayer(name: string): LayerState | undefined {
+    const layers = this.ctx.layers;
+    const exact = layers.find((l) => l.name === name);
+    if (exact) return exact;
+    if (!name) return layers.length === 1 ? layers[0] : undefined;
+    const n = name.toLowerCase();
+    const cands = layers.filter((l) => {
+      const ln = l.name.toLowerCase();
+      const head = ln.split("_")[0];
+      return ln.includes(n) || (head.length >= 3 && n.startsWith(head));
+    });
+    return cands.length === 1 ? cands[0] : undefined;
+  }
 
-    const layer = this.ctx.layers.find((l) => l.name === layerName);
-    if (!layer && operation !== "list") {
-      return textResult(
-        layerName
-          ? `Couche "${layerName}" introuvable. Couches disponibles : ${this.ctx.layers.map((l) => l.name).join(", ")}.`
-          : `Précisez une couche. Disponibles : ${this.ctx.layers.map((l) => l.name).join(", ")}.`,
+  // ========================================================================
+  // map -- operations typees sur l'affichage, avec accuse de la surface
+  //
+  // Le serveur ne connait pas l'etat reel de la carte : seule la surface d'affichage (page web, App MCP)
+  // le connait. Une operation est donc validee, mise en file, appliquee PAR LA SURFACE qui relit l'etat
+  // reel et l'accuse (ui_ack). `map` ne renvoie un succes qu'avec cet accuse ; sinon une erreur explicite.
+  // ========================================================================
+
+  private surfaceVueLe = 0;
+  private revOp = 0;
+  private opsEnFile: Array<{ rev: number; op: Record<string, unknown> }> = [];
+  private opsAttente = new Map<number, (r: Record<string, unknown>) => void>();
+
+  /** La surface interroge ici (outil non annonce aux agents) : renvoie les operations en attente. */
+  private async handleUiPoll(): Promise<CallToolResult> {
+    this.surfaceVueLe = Date.now();
+    const fin = Date.now() + 2000;
+    while (this.opsEnFile.length === 0 && Date.now() < fin) await new Promise((r) => setTimeout(r, 100));
+    this.surfaceVueLe = Date.now();
+    const ops = this.opsEnFile.splice(0);
+    return { content: [{ type: "text", text: JSON.stringify({ ops }) }] };
+  }
+
+  /** La surface accuse une operation : etat reellement relu, ou erreur. */
+  private handleUiAck(args: Record<string, unknown>): CallToolResult {
+    this.surfaceVueLe = Date.now();
+    const rev = Number(args.rev);
+    const fin = this.opsAttente.get(rev);
+    if (!fin) return errorResult(`Operation ${rev} inconnue ou deja expiree.`);
+    this.opsAttente.delete(rev);
+    fin(args);
+    return { content: [{ type: "text", text: "ok" }] };
+  }
+
+  private async handleMap(args: Record<string, unknown>): Promise<CallToolResult> {
+    const operation = String(args.operation ?? "");
+    const OPS = ["show", "hide", "filter", "clear_filter"];
+    if (!OPS.includes(operation)) {
+      return errorResult(`Operation inconnue : "${operation}". Operations reellement prises en charge : ${OPS.join(", ")}.`);
+    }
+    const layer = this.resolveLayer(String(args.layer ?? ""));
+    if (!layer) {
+      const n = String(args.layer ?? "");
+      return errorResult(
+        (n ? `Couche "${n}" introuvable. ` : "Precisez une couche. ") +
+        (this.ctx.layers.length ? `Couches disponibles : ${this.ctx.layers.map((l) => l.name).join(", ")}.` : "Aucune couche chargee : executez d'abord une action thematique."),
       );
     }
-
-    switch (operation) {
-      case "show":
-        layer!.visible = true;
-        return textResult(`Couche "${layerName}" affichée.`);
-
-      case "hide":
-        layer!.visible = false;
-        return textResult(`Couche "${layerName}" masquée.`);
-
-      case "highlight": {
-        const featureIds = args.features as string[] ?? [];
-        if (featureIds.length === 0) {
-          return textResult("Précisez les identifiants des features à mettre en surbrillance.");
-        }
-        // Stocker le highlight dans le style de la couche
-        layer!.style = { ...layer!.style, stroke: "#ff0000", opacity: 0.9 };
-        return textResult(
-          `${featureIds.length} feature(s) mise(s) en surbrillance sur "${layerName}".`,
-        );
+    const op: Record<string, unknown> = { operation, layer: layer.name };
+    if (operation === "filter") {
+      const field = String(args.field ?? "").trim();
+      if (!field) return errorResult("filter : precisez `field` (nom du champ).");
+      const forme = ["values", "min", "max", "texte"].filter((k) => args[k] !== undefined && args[k] !== null && !(k === "values" && Array.isArray(args[k]) && (args[k] as unknown[]).length === 0));
+      if (forme.length === 0) return errorResult("filter : precisez `values` (liste), ou `min`/`max` (nombres), ou `texte`.");
+      if (forme.includes("values") && (forme.includes("min") || forme.includes("max") || forme.includes("texte"))) return errorResult("filter : `values` ne se combine pas avec min/max/texte ; un filtre par appel et par champ.");
+      op.field = field;
+      if (forme.includes("values")) {
+        if (!Array.isArray(args.values)) return errorResult("filter : `values` doit etre une liste de valeurs.");
+        op.values = (args.values as unknown[]).map(String);
       }
-
-      case "filter": {
-        const filterExpr = args.expression ?? args.filter;
-        if (!filterExpr) {
-          return textResult("Précisez une expression de filtre.");
-        }
-        // Le filtre est stocké pour utilisation par l'interface web
-        return textResult(
-          `Filtre appliqué sur "${layerName}" : ${JSON.stringify(filterExpr)}.`,
-        );
+      for (const k of ["min", "max"]) if (args[k] !== undefined && args[k] !== null) {
+        const x = Number(args[k]); if (!Number.isFinite(x)) return errorResult(`filter : \`${k}\` doit etre un nombre (recu : ${JSON.stringify(args[k])}).`);
+        op[k] = x;
       }
-
-      case "thematic": {
-        const attribute = String(args.attribute ?? args.colorBy ?? "");
-        if (!attribute) {
-          return textResult("Précisez l'attribut pour la carte thématique (ex: type_zone).");
-        }
-        layer!.style = { ...layer!.style, colorBy: attribute };
-        return textResult(
-          `Carte thématique de "${layerName}" colorée par "${attribute}".`,
-        );
-      }
-
-      default:
-        return textResult(
-          `Opération inconnue : "${operation}". ` +
-          `Opérations : show, hide, highlight, filter, thematic.`,
-        );
+      if (typeof op.min === "number" && typeof op.max === "number" && op.min > op.max) return errorResult(`filter : min (${op.min}) superieur a max (${op.max}).`);
+      if (args.texte !== undefined && args.texte !== null) op.texte = String(args.texte);
     }
+    if (operation === "clear_filter" && args.field) op.field = String(args.field);
+
+    // Une surface d'affichage doit etre connectee a CETTE session, sinon rien n'est affiche
+    if (Date.now() - this.surfaceVueLe > 6000) {
+      return errorResult("Aucune surface d'affichage n'est connectee a cette session (page web ou App MCP) : rien n'a ete applique ni affiche.");
+    }
+    const rev = ++this.revOp;
+    const accuse = await new Promise<Record<string, unknown> | null>((resolve) => {
+      const t = setTimeout(() => { this.opsAttente.delete(rev); this.opsEnFile = this.opsEnFile.filter((o) => o.rev !== rev); resolve(null); }, 20000);
+      this.opsAttente.set(rev, (r) => { clearTimeout(t); resolve(r); });
+      this.opsEnFile.push({ rev, op });
+    });
+    if (!accuse) return errorResult("La surface d'affichage n'a pas confirme l'operation dans les 20 s : l'etat de la carte n'est pas garanti. Relisez l'etat avant de continuer.");
+    if (accuse.ok !== true) return errorResult(String(accuse.erreur ?? "Operation refusee par la surface d'affichage."));
+    if (operation === "show" || operation === "hide") layer.visible = operation === "show";
+    return { content: [{ type: "text", text: String(accuse.resume ?? "Operation appliquee.") }], structuredContent: { etat: accuse.etat ?? null } } as CallToolResult;
   }
 
   /**
@@ -508,7 +568,7 @@ export class GeoContextSession {
   ): Promise<CallToolResult> {
     const featureId = String(args.id ?? args.feature ?? "");
     if (!featureId) {
-      return textResult("Veuillez préciser l'identifiant de la feature.");
+      return errorResult("Veuillez préciser l'identifiant de la feature.");
     }
 
     // Chercher dans les données chargées si c'est un identifiant connu
@@ -542,18 +602,18 @@ export class GeoContextSession {
   ): Promise<CallToolResult> {
     const theme2 = String(args.theme ?? "");
     if (!this.ctx.level || !this.ctx.theme) {
-      return textResult("Un thème doit être actif pour comparer.");
+      return errorResult("Un thème doit être actif pour comparer.");
     }
 
     if (!theme2 || theme2 === this.ctx.theme) {
-      return textResult(
+      return errorResult(
         `Précisez un thème différent à comparer avec ${THEME_META[this.ctx.theme].label}.`,
       );
     }
 
     const themes = registry.getThemes(this.ctx.level);
     if (!themes.includes(theme2 as Theme)) {
-      return textResult(
+      return errorResult(
         `Thème "${theme2}" non disponible. Thèmes : ${themes.map((t) => THEME_META[t].label).join(", ")}.`,
       );
     }
@@ -765,8 +825,8 @@ export class GeoContextSession {
     const layerNames = this.ctx.layers.map((l) => l.name);
 
     const description = layerNames.length > 0
-      ? `Carte — couches actives : ${layerNames.join(", ")}. Opérations : show, hide, highlight, filter, thematic.`
-      : "Gérer les couches cartographiques. ⚠ Aucune couche active — exécutez une action thématique d'abord.";
+      ? `Carte -- couches actives : ${layerNames.join(", ")}. Operations : show, hide, filter (champ + values | min/max | texte), clear_filter. Le resultat est l'etat REELLEMENT affiche (compte, total) relu par la carte ; une erreur est renvoyee si la carte ne confirme pas.`
+      : "Gerer les couches cartographiques. ? Aucune couche active -- executez une action thematique d'abord.";
 
     return {
       name: "map",
@@ -774,16 +834,13 @@ export class GeoContextSession {
       inputSchema: {
         type: "object",
         properties: {
-          operation: {
-            type: "string",
-            enum: ["show", "hide", "highlight", "filter", "thematic"],
-            description: "Opération à effectuer",
-          },
-          layer: {
-            type: "string",
-            ...(layerNames.length > 0 ? { enum: layerNames } : {}),
-            description: "Nom de la couche",
-          },
+          operation: { type: "string", enum: ["show", "hide", "filter", "clear_filter"], description: "Operation a effectuer" },
+          layer: { type: "string", ...(layerNames.length > 0 ? { enum: layerNames } : {}), description: "Nom de la couche" },
+          field: { type: "string", description: "filter / clear_filter : nom du champ (tel que dans le panneau de donnees)" },
+          values: { type: "array", items: { type: "string" }, description: "filter : valeurs retenues d'un champ a categories (vide = (sans valeur) avec \"\")" },
+          min: { type: "number", description: "filter : borne basse incluse d'un champ numerique" },
+          max: { type: "number", description: "filter : borne haute incluse d'un champ numerique" },
+          texte: { type: "string", description: "filter : texte contenu (sans accent ni casse) dans un champ texte" },
         },
         required: ["operation", "layer"],
       },
@@ -1009,7 +1066,8 @@ function formatSourceResults(
       const source = registry.findSource(r.sourceId);
       const label = source?.label ?? r.sourceId;
       let summary = `${label} : ${r.features.length} résultats`;
-      if (r.truncated) summary += ` (tronqué, total: ${r.totalCount ?? "?"})`;
+      if (r.truncated) summary += ` (RÉSULTAT PARTIEL : ${r.features.length} renvoyés sur un total de ${r.totalCount ?? "?"} ; ne pas en tirer de comptes ni de conclusions ; la lecture s'arrête à la limite de pages de la source : précisez un territoire plus fin ou un filtre)`;
+      if (r.sansPosition) summary += ` ; ${r.sansPosition} entité(s) sans position fiable (donnée source, hors d'un rayon de 50 km autour des autres) : dans le tableau et le total, pas sur la carte, jamais replacées`;
       lines.push(summary);
     }
   }
@@ -1020,6 +1078,10 @@ function formatSourceResults(
 // ==========================================================================
 // Utilitaires
 // ==========================================================================
+
+function errorResult(text: string): CallToolResult {
+  return { content: [{ type: "text", text }], isError: true };
+}
 
 function textResult(text: string, ctx?: NavigationContext): CallToolResult {
   const result: CallToolResult = { content: [{ type: "text", text }] };
@@ -1066,9 +1128,11 @@ function makeFriendlyError(error: string): string {
  * URL de l'interface web (HTTP mode seulement).
  * Permet au LLM d'orienter l'utilisateur vers la carte.
  */
-const WEB_UI_URL = process.env.TRANSPORT_TYPE === "http"
-  ? `http://localhost:${process.env.PORT ?? "3000"}`
-  : null;
+const WEB_UI_URL: string | null =
+  process.env.PUBLIC_BASE_URL?.replace(/\/+$/, "") ||
+  (process.env.TRANSPORT_TYPE === "http"
+    ? `http://localhost:${process.env.PORT ?? "3000"}`
+    : null);
 
 function richResult(
   text: string,
@@ -1078,10 +1142,6 @@ function richResult(
   const content: CallToolResult["content"] = [{ type: "text", text }];
 
   if (Object.keys(layerSpecs).length > 0) {
-    content.push({
-      type: "text",
-      text: JSON.stringify({ _type: "layerSpecs", layers: layerSpecs }),
-    });
 
     // Orienter l'utilisateur vers l'interface cartographique si disponible
     if (WEB_UI_URL) {
@@ -1093,6 +1153,10 @@ function richResult(
   }
 
   const result: CallToolResult = { content };
+  if (Object.keys(layerSpecs).length > 0) {
+    // Contrat : les layerSpecs voyagent en données structurées, pas dans le texte du LLM
+    (result as any).structuredContent = { layerSpecs };
+  }
 
   // Données UI pour MCP Apps (iframe carte intégrée)
   if (ctx) {

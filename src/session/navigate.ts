@@ -32,6 +32,8 @@ export interface NavigateSuccess {
   name: string;
   bbox: [number, number, number, number] | null;
   hierarchy: Hierarchy;
+  /** Information de résolution (ex. arrondissement rattaché à sa commune) */
+  note?: string;
 }
 
 export interface NavigateError {
@@ -51,6 +53,59 @@ const GPF_GEOCODE = "https://data.geopf.fr/geocodage";
 // ==========================================================================
 // Point d'entrée
 // ==========================================================================
+
+
+// ==========================================================================
+// Codes et noms de region / departement (ambiguites)
+// ==========================================================================
+
+/** Codes a 2 chiffres portes a la fois par une region et par un departement (ex. 93 : PACA / Seine-Saint-Denis). */
+const CODES_REGION_ET_DEPARTEMENT = new Set(["01", "02", "03", "04", "06", "11", "24", "27", "28", "32", "44", "52", "53", "75", "76", "84", "93", "94"]);
+
+const sansAccent = (x: string) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+const ALIAS_REGION: Record<string, string> = { paca: "93", idf: "11", aura: "84" };
+
+interface EntiteAdmin { niveau: "region" | "departement"; code: string; nom: string }
+let listeAdminP: Promise<EntiteAdmin[]> | null = null;
+/** Regions et departements (nom, code), lus une fois dans ADMIN EXPRESS ; une erreur n'est pas memorisee. */
+function listeAdmin(): Promise<EntiteAdmin[]> {
+  if (!listeAdminP) {
+    const lire = async (niveau: "region" | "departement"): Promise<EntiteAdmin[]> => {
+      const p = new URLSearchParams({ service: "WFS", version: "2.0.0", request: "GetFeature", typeName: `ADMINEXPRESS-COG.LATEST:${niveau}`, outputFormat: "application/json", propertyName: "nom_officiel,code_insee", count: "200" });
+      const r = await fetch(`${GPF_WFS}?${p}`); if (!r.ok) throw new Error(`ADMIN EXPRESS ${niveau} : HTTP ${r.status}`);
+      const j = await r.json() as any; const n: EntiteAdmin[] = (j.features ?? []).map((f: any) => ({ niveau, code: String(f.properties?.code_insee), nom: String(f.properties?.nom_officiel ?? "") }));
+      if (n.length < (niveau === "region" ? 17 : 100)) throw new Error(`ADMIN EXPRESS ${niveau} : liste incomplete (${n.length})`);
+      return n;
+    };
+    listeAdminP = Promise.all([lire("region"), lire("departement")]).then((a) => a.flat());
+    listeAdminP.catch(() => { listeAdminP = null; });
+  }
+  return listeAdminP;
+}
+
+function codeAmbigu(code: string): NavigateError {
+  return { success: false, error: `Le code ${code} designe a la fois un departement et une region. Precisez « departement:${code} » ou « region:${code} ».` };
+}
+
+/** Nom exact (sans accent ni casse) d'une region ou d'un departement ; ambigu si plusieurs, ou si une commune porte le meme nom. */
+async function resoudreNomAdministratif(texte: string): Promise<NavigateResult | null> {
+  const q = sansAccent(texte); if (!q) return null;
+  let liste: EntiteAdmin[];
+  try { liste = await listeAdmin(); } catch { return null; } // liste indisponible : recherche habituelle
+  const alias = ALIAS_REGION[q];
+  const hits = alias ? liste.filter((e) => e.niveau === "region" && e.code === alias) : liste.filter((e) => sansAccent(e.nom) === q);
+  if (hits.length === 0) return null;
+  let commune: string | null = null; // une commune du meme nom (ex. Paris) : on ne choisit pas en silence
+  try {
+    const g = await fetchJSON(`${GPF_GEOCODE}/search?` + new URLSearchParams({ q: texte, type: "municipality", limit: "1" }).toString()) as any;
+    const p = g.features?.[0]?.properties; if (p && sansAccent(String(p.city ?? p.name ?? "")) === q) commune = `commune:${p.citycode}`;
+  } catch { /* pas de commune homonyme confirmee */ }
+  if (hits.length > 1 || commune) {
+    const opts = [...hits.map((e) => `${e.niveau}:${e.code} (${e.niveau} ${e.nom})`), ...(commune ? [`${commune} (commune)`] : [])];
+    return { success: false, error: `« ${texte} » est ambigu. Precisez : ${opts.join(" ; ")}.` };
+  }
+  const h = hits[0]; return h.niveau === "region" ? resolveRegion(h.code) : resolveDepartement(h.code);
+}
 
 /**
  * Résout une cible de navigation en territoire identifié.
@@ -100,6 +155,7 @@ export async function resolveTerritory(
 
   // 4. Code département (2-3 chiffres ou 2A/2B)
   if (/^(\d{2,3}|2[AB])$/i.test(t)) {
+    if (CODES_REGION_ET_DEPARTEMENT.has(t)) return codeAmbigu(t);
     return resolveDepartement(t.toUpperCase());
   }
 
@@ -109,6 +165,8 @@ export async function resolveTerritory(
   }
 
   // 6. Texte libre → geocodage
+  const admin = await resoudreNomAdministratif(t);
+  if (admin) return admin;
   return resolveTextSearch(t);
 }
 
@@ -119,7 +177,26 @@ export async function resolveTerritory(
 /**
  * Résout une commune par code INSEE via WFS ADMINEXPRESS.
  */
+/**
+ * Paris, Lyon, Marseille : les codes d'arrondissement municipal (751xx, 6938x, 132xx)
+ * n'existent pas dans la couche « commune » d'ADMINEXPRESS → rattachement à la commune.
+ */
+function communeMereArrondissement(code: string): string | null {
+  if (/^132(0[1-9]|1[0-6])$/.test(code)) return "13055"; // Marseille
+  if (/^6938[1-9]$/.test(code)) return "69123"; // Lyon
+  if (/^751(0[1-9]|1\d|20)$/.test(code)) return "75056"; // Paris
+  return null;
+}
+
 async function resolveCommune(codeInsee: string): Promise<NavigateResult> {
+  const mere = communeMereArrondissement(codeInsee);
+  if (mere) {
+    const r = await resolveCommune(mere);
+    if (r.success) {
+      return { ...r, note: `Le code ${codeInsee} est un arrondissement municipal : rattaché à la commune ${r.name} (${mere}).` };
+    }
+    return r;
+  }
   const feature = await fetchWfsFeature(
     "ADMINEXPRESS-COG.LATEST:commune",
     `code_insee='${codeInsee}'`,
