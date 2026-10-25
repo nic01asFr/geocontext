@@ -147,6 +147,11 @@ export async function resolveTerritory(
     return resolveCommune(t);
   }
 
+  // 1 bis. Identifiant BD TOPO de bâtiment (cleabs) : le niveau « bâtiment » n'est pas navigable ; refus explicite plutôt que lecture comme parcelle
+  if (/^BATIMENT\d{10,}$/i.test(t)) {
+    return { success: false, error: `Navigation vers un bâtiment non prise en charge (« ${t} »). Naviguer vers sa parcelle ou sa commune, puis charger la couche des bâtiments.` };
+  }
+
   // 2. Identifiant parcellaire (14+ chars, alphanum majuscule)
   if (/^[0-9A-Z]{14,}$/i.test(t)) {
     return resolveParcelle(t.toUpperCase());

@@ -18,3 +18,15 @@ describe("nomCorrespond — le géocodeur ne choisit pas en silence", () => {
     expect(nomCorrespond("Cassis", "")).toBe(false);
   });
 });
+
+import { resolveTerritory } from "../../src/session/navigate";
+import { createEmptyContext } from "../../src/session/types";
+
+describe("navigation vers un bâtiment", () => {
+  test("refus explicite, jamais lu comme une parcelle", async () => {
+    const r: any = await resolveTerritory("BATIMENT0000000258037070", createEmptyContext());
+    expect(r.success).toBe(false);
+    expect(r.error).toMatch(/bâtiment non prise en charge/);
+    expect(r.error).not.toMatch(/Parcelle introuvable/);
+  });
+});
