@@ -363,11 +363,13 @@
       if (!window.GeoMap?.colorerPar || !this._sourceId) return;
       const nums = this._fields.filter((f) => this._cols[f.key]?.kind === "number" && !f.derivee && this._classes(f.key, 5));
       const geom = GeoMap.geomDe?.(this._sourceId), points = geom === "point";
-      if (!nums.length && !points) return;
-      box.hidden = false;
+      // champs catégoriels colorables : 2 à 12 valeurs (au-delà, la légende serait illisible : proposés grisés avec la raison, jamais regroupés en « autres »)
+      const cats = this._fields.filter((f) => { const c = this._cols[f.key]; return c?.kind === "enum" && !f.derivee && c.dict.length >= 2; });
+      box.hidden = false; // toujours affiché : relief / soleil concernent la scène, la palette et les formes dépendent du type de couche
+      const COUL_CAT = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#56B4E9", "#CC79A7", "#F0E442", "#332288", "#88CCEE", "#117733", "#AA4499", "#999933"];
       let h = `<span class="dp-t-titre">${Icon("layers", 14)} Représentation</span>`;
-      if (nums.length) h += `<label>Colorier par <select class="dp-v-champ"><option value="">catégories d'origine</option>${nums.map((f) => `<option value="${esc(f.key)}">${esc(f.label || this._formatHeader(f.key))} (par classes)</option>`).join("")}</select></label>`;
-      if (nums.length || points) h += `<label>Palette <select class="dp-v-pal"><option value="">charte (défaut)</option><option value="bleus">bleus</option><option value="viridis">viridis (lisible daltoniens)</option><option value="chaud">jaune-rouge</option><option value="verts">verts</option><option value="gris">gris</option></select></label>${nums.length ? `<span class="dp-v-ech" hidden><label>Classes <select class="dp-v-k">${[3, 4, 5, 6, 7].map((x) => `<option${x === 5 ? " selected" : ""}>${x}</option>`).join("")}</select></label></span>` : ""}`;
+      if (nums.length || cats.length) h += `<label>Colorier par <select class="dp-v-champ"><option value="">catégories d'origine</option>${nums.map((f) => `<option value="${esc(f.key)}">${esc(f.label || this._formatHeader(f.key))} (par classes)</option>`).join("")}${cats.map((f) => { const nb = this._cols[f.key].dict.length, ok = nb <= 12; return `<option value="cat:${esc(f.key)}"${ok ? "" : " disabled"}>${esc(f.label || this._formatHeader(f.key))} (${ok ? "par valeur" : nb + " valeurs : trop pour colorer"})</option>`; }).join("")}</select></label>`;
+      h += `<label>Palette <select class="dp-v-pal"><option value="">charte (défaut)</option><option value="bleus">bleus</option><option value="viridis">viridis (lisible daltoniens)</option><option value="chaud">jaune-rouge</option><option value="verts">verts</option><option value="gris">gris</option></select></label>${nums.length ? `<span class="dp-v-ech" hidden><label>Classes <select class="dp-v-k">${[3, 4, 5, 6, 7].map((x) => `<option${x === 5 ? " selected" : ""}>${x}</option>`).join("")}</select></label></span>` : ""}`;
       if (points) h += `<label>Forme <select class="dp-v-forme"><option value="">symboles</option><option value="proportionnel">cercles proportionnels</option><option value="heat">chaleur</option><option value="hex">hexagones</option><option value="grille">grille</option></select></label>${nums.length ? `<label class="dp-v-lib">Champ <select class="dp-v-champ2">${nums.map((f) => `<option value="${esc(f.key)}">${esc(f.label || this._formatHeader(f.key))}</option>`).join("")}</select></label>` : ""}`;
       if (points) h += `<span class="dp-v-agg" hidden><label>Valeur <select class="dp-v-metr"><option value="n">nombre de points</option>${nums.map((f) => `${f.aggregate === "sum" ? `<option value="somme:${esc(f.key)}">somme de ${esc(f.label || this._formatHeader(f.key))}</option>` : ""}<option value="moyenne:${esc(f.key)}">moyenne de ${esc(f.label || this._formatHeader(f.key))}</option>`).join("")}</select></label><label>Maille <select class="dp-v-taille"><option>75</option><option selected>150</option><option>300</option><option>600</option></select> m</label><label><input type="checkbox" class="dp-v-relief"> relief 3D</label><button type="button" class="dp-v-incl" hidden>Incliner la carte</button></span>`;
       h += `<span class="dp-v-env"><label><input type="checkbox" class="dp-v-env-r"> relief du terrain</label><label><input type="checkbox" class="dp-v-env-s"> soleil (heure actuelle)</label></span><small class="dp-t-note dp-v-note"></small>`;
@@ -376,8 +378,26 @@
       const dire = (m, ko) => { note.innerHTML = m ? (ko ? `<span class="dp-ko">${m}</span>` : m) : ""; };
       const ch = box.querySelector(".dp-v-champ");
       if (ch) ch.addEventListener("change", async () => {
-        const key = ch.value, kk = Number(box.querySelector(".dp-v-k").value) || 5, pn = box.querySelector(".dp-v-pal").value; box.querySelector(".dp-v-ech").hidden = !key; dire("Application sur la carte…");
+        const kv = ch.value, cat = kv.startsWith("cat:"), key = cat ? kv.slice(4) : kv, kk = Number(box.querySelector(".dp-v-k")?.value) || 5, pn = box.querySelector(".dp-v-pal").value;
+        const ech = box.querySelector(".dp-v-ech"); if (ech) ech.hidden = !key || cat; box.querySelector(".dp-v-pal").disabled = cat; dire("Application sur la carte…");
         try {
+          if (cat) { // coloration par valeur d'un champ catégoriel : même contrôle que les classes (comptes de la légende lue sur la carte = comptes du tableau)
+            const c = this._cols[key];
+            if (!c || c.kind !== "enum" || c.dict.length > COUL_CAT.length) throw new Error("champ non colorable par valeur (plus de " + COUL_CAT.length + " valeurs)");
+            const noms = [...c.dict, "(sans valeur)"], prop = key + "__cat", att = new Map(noms.map((x) => [x, 0]));
+            for (let i = 0; i < this._n; i++) { const f = this._features[i], p = f.properties || (f.properties = {}); p[prop] = c.codes[i] ? c.dict[c.codes[i] - 1] : "(sans valeur)"; }
+            for (let t = 0; t < this._idxAttr.length; t++) { const i = this._idxAttr[t]; if (!this._geo[i]) continue; const nm = c.codes[i] ? c.dict[c.codes[i] - 1] : "(sans valeur)"; att.set(nm, att.get(nm) + 1); }
+            const categories = noms.map((nm, j) => ({ value: nm, label: nm, color: nm === "(sans valeur)" ? "#9aa3a8" : COUL_CAT[j] }));
+            const g = await GeoMap.colorerPar(this._sourceId, { champ: prop, categories });
+            const lu = new Map((g?.classes || []).map((x) => [x.libelle, x.compte]));
+            const ecarts = [...att.entries()].filter(([nom, m]) => m > 0 && (lu.get(nom) ?? 0) !== m);
+            if (ecarts.length) { await GeoMap.colorerPar(this._sourceId, null); ch.value = ""; box.querySelector(".dp-v-pal").disabled = false; this._vue.champ = null;
+              dire(`Coloration annulée : la carte et le tableau ne comptent pas pareil (${ecarts.map(([nom, m]) => `« ${esc(nom)} » : tableau ${m}, carte ${lu.get(nom) ?? 0}`).join(" ; ")}). Style d'origine rétabli.`, true); return; }
+            this._vue.champ = kv; this._publier?.();
+            const manque = att.get("(sans valeur)");
+            dire(`${c.dict.length} valeurs de « ${esc(key)} » (couleurs fixes, lisibles par les daltoniens) — comptes carte = comptes tableau.${manque ? ` ${manque.toLocaleString("fr-FR")} élément(s) sans valeur : gris.` : ""}`);
+            return;
+          }
           if (!key) { await GeoMap.colorerPar(this._sourceId, null); this._vue.champ = null; dire("Catégories d'origine rétablies."); this._publier?.(); return; }
           const cl = this._classes(key, kk, true, pn), c = this._cols[key];
           const g = await GeoMap.colorerPar(this._sourceId, { champ: cl.champ, categories: cl.categories });
@@ -391,15 +411,16 @@
           this._vue.champ = key; this._publier?.();
           const manque = this._n - c.pres.reduce((a, x) => a + x, 0);
           dire(`${cl.noms.length - 1} classes par quantiles (palette ${esc(pn || "bleus")}) sur « ${esc(key)} » — comptes carte = comptes tableau.${manque ? ` ${manque.toLocaleString("fr-FR")} élément(s) sans valeur : classe grise « (sans valeur) », jamais rangés dans une classe.` : ""}`);
-        } catch (e) { try { await GeoMap.colorerPar(this._sourceId, null); } catch {} ch.value = ""; this._vue.champ = null; dire(`Coloration impossible : ${esc(e.message || e)}. Style d'origine rétabli.`, true); }
+        } catch (e) { try { await GeoMap.colorerPar(this._sourceId, null); } catch {} ch.value = ""; box.querySelector(".dp-v-pal").disabled = false; this._vue.champ = null; dire(`Coloration impossible : ${esc(e.message || e)}. Style d'origine rétabli.`, true); }
       });
       for (const sel of box.querySelectorAll(".dp-v-k,.dp-v-pal")) sel.addEventListener("change", async () => {
         if (sel.classList.contains("dp-v-pal")) { // même palette pour les classes ET pour la rampe de la chaleur / hexagones / grille
           const pn = sel.value, f = this._echelle(pn, 9); 
+          if (!points) { if (ch && ch.value && !ch.value.startsWith("cat:")) ch.dispatchEvent(new Event("change")); return; } // la rampe ne sert qu'à chaleur / hexagones / grille (points)
           try { await GeoMap.setRampe(this._sourceId, pn ? Array.from({ length: 9 }, (_, i) => f(i)) : null); }
           catch (e) { dire(`Palette non appliquée à la chaleur / hexagones / grille de cette couche : ${esc(e.message || e)}`, true); }
         }
-        if (ch && ch.value) ch.dispatchEvent(new Event("change"));
+        if (ch && ch.value && !ch.value.startsWith("cat:")) ch.dispatchEvent(new Event("change"));
       });
       { const e0 = GeoMap._env || {}; box.querySelector(".dp-v-env-r").checked = !!e0.relief; box.querySelector(".dp-v-env-s").checked = !!e0.soleil; }
       const majEnv = () => { const env = {}; if (box.querySelector(".dp-v-env-r").checked) env.relief = true; if (box.querySelector(".dp-v-env-s").checked) env.soleil = { maintenant: true }; GeoMap.setEnvironnement(env); dire(Object.keys(env).length ? "Environnement appliqué (incliner la carte pour voir le relief ; le relief est celui du monde entier, le soleil donne la direction de la lumière sans ombres portées)." : "Environnement retiré."); };
@@ -693,7 +714,7 @@
         const esc = (x) => String(x ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
         const ch = Number(this._meta.controle?.cheval || 0), nv = this._meta.controle?.niveau || "commune", lib = { commune: "la commune", epci: "l'EPCI", departement: "le département", region: "la région" }[nv] || "le territoire", delib = { commune: "de la commune", epci: "de l'EPCI", departement: "du département", region: "de la région" }[nv] || "du territoire", adj = { commune: "communale", epci: "de l'EPCI", departement: "départementale", region: "régionale" }[nv] || "du territoire";
         b.hidden = false;
-        b.innerHTML = `<span>+ ${vo.length.toLocaleString("fr-FR")} objet(s) écarté(s) : aucun point commun avec le contour ${delib} (ADMIN EXPRESS, IGN) — retenus par l'emprise rectangulaire du filtre serveur (voisinage).${ch ? ` ${ch.toLocaleString("fr-FR")} objet(s) à cheval sur la limite ${adj} sont conservés (colonne « Position »).` : ""}</span> <button type="button" class="dp-constat-btn">liste des écartés</button><div class="dp-constat" hidden><pre style="max-height:180px;overflow:auto;margin:6px 0 0;font-size:11px;white-space:pre-wrap">${vo.map((x) => `${esc(x.id)}${x.libelle ? " · " + esc(x.libelle) : ""} — ${esc(x.raison)}`).join("\n")}</pre></div>`;
+        b.innerHTML = `<span>+ ${vo.length.toLocaleString("fr-FR")} objet(s) écarté(s) : aucun point commun avec le contour exact ${delib} (ADMIN EXPRESS, IGN) : leur géométrie a été recoupée avec ce contour.${ch ? ` ${ch.toLocaleString("fr-FR")} objet(s) dont la géométrie coupe la limite ${adj} sont conservés tels quels (colonne « Position »).` : ""}</span> <button type="button" class="dp-constat-btn">liste des écartés</button><div class="dp-constat" hidden><pre style="max-height:180px;overflow:auto;margin:6px 0 0;font-size:11px;white-space:pre-wrap">${vo.map((x) => `${esc(x.id)}${x.libelle ? " · " + esc(x.libelle) : ""} — ${esc(x.raison)}`).join("\n")}</pre></div>`;
         b.querySelector(".dp-constat-btn").addEventListener("click", () => { const d = b.querySelector(".dp-constat"); d.hidden = !d.hidden; });
         return;
       }
@@ -861,8 +882,30 @@
     _appliquerZone(idx) {
       if (!this._zoneOn || !this._zone) return idx;
       const b = this._bboxFeatures(), [w, s, e, n] = this._zone, out = new Uint32Array(idx.length); let m = 0;
-      for (let t = 0; t < idx.length; t++) { const i = idx[t], k = 4 * i; if (b[k] <= e && b[k + 2] >= w && b[k + 1] <= n && b[k + 3] >= s) out[m++] = i; }
+      // préfiltre par emprise, puis test EXACT sur la géométrie : une surface dont l'emprise rectangulaire touche la zone sans que la surface la touche n'est pas « dans la zone »
+      for (let t = 0; t < idx.length; t++) { const i = idx[t], k = 4 * i; if (b[k] <= e && b[k + 2] >= w && b[k + 1] <= n && b[k + 3] >= s && this._toucheZone(this._features[i]?.geometry, this._zone)) out[m++] = i; }
       return out.slice(0, m);
+    },
+    /** La géométrie a-t-elle au moins un point commun avec le rectangle [w,s,e,n] ? (points, lignes, surfaces avec trous, collections ; coordonnées WGS84) */
+    _toucheZone(g, [w, s, e, n]) {
+      if (!g) return false;
+      const dans = (x, y) => x >= w && x <= e && y >= s && y <= n;
+      const seg = (a, b) => { let t0 = 0, t1 = 1; const dx = b[0] - a[0], dy = b[1] - a[1];
+        for (const [p, q] of [[-dx, a[0] - w], [dx, e - a[0]], [-dy, a[1] - s], [dy, n - a[1]]]) { if (p === 0) { if (q < 0) return false; } else { const r = q / p; if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; } } }
+        return true; };
+      const ligne = (l) => l.some(([x, y]) => dans(x, y)) || l.some((c, i) => i > 0 && seg(l[i - 1], c));
+      const paritePoint = (x, y, anneaux) => { let c = false; for (const r of anneaux) for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c; } return c; };
+      const surface = (P) => P.some(ligne) || paritePoint(w, s, P); // contour touché, sinon la zone est entièrement dans la surface (hors trous)
+      switch (g.type) {
+        case "Point": return dans(g.coordinates[0], g.coordinates[1]);
+        case "MultiPoint": return g.coordinates.some(([x, y]) => dans(x, y));
+        case "LineString": return ligne(g.coordinates);
+        case "MultiLineString": return g.coordinates.some(ligne);
+        case "Polygon": return surface(g.coordinates);
+        case "MultiPolygon": return g.coordinates.some(surface);
+        case "GeometryCollection": return (g.geometries || []).some((x) => this._toucheZone(x, [w, s, e, n]));
+        default: throw new Error("géométrie « " + g.type + " » non gérée pour la zone visible");
+      }
     },
     _majZone() {
       if (!this._zoneOn) return;
