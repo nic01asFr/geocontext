@@ -31,7 +31,10 @@ Couches lues par boîte englobante aux niveaux commune, EPCI, département, rég
 ## Limites connues
 
 - **Volumes** : les routes d'un département ou d'une région dépassent la limite (ordre de grandeur de la boîte englobante : plusieurs centaines de milliers à plusieurs millions d'objets) ; elles sont refusées explicitement à ces niveaux.
-- **Niveaux parcelle et bâtiment** : le mode exact n'a pas été vérifié à ces niveaux.
+- **Niveau parcelle** : la géométrie exacte de la parcelle est portée par le contexte (`ctx.geometry`) et sert aux filtres `INTERSECTS` (zonage de la parcelle, bâtiments sur la parcelle). Le WKT est envoyé avec `SRID=4326;` : sans lui, le service lit les coordonnées en ordre latitude/longitude et ne renvoie rien. Vérifié contre un calcul indépendant (`jsts` sur les candidats du rectangle) sur 4 parcelles de Cassis : mêmes comptes pour les zonages et les bâtiments. Sources parcelle encore en erreur explicite : `argiles`, `ppr`, transactions.
+- **Niveau bâtiment** : navigation et actions non vérifiées.
+- **DVF** : comptage seul, sans table ni couche. **SIRENE** : injoignable depuis le pod de test (erreur explicite).
+- **Cartes de chaleur / hexagones** : la somme des cellules n'est pas relisible via l'API d'Atlas, donc non vérifiée contre le tableau.
 - **Vérification indépendante** : pour la région, la comparaison avec un calcul indépendant par `jsts` n'a pas pu être menée à son terme (durée) ; les niveaux commune, EPCI et département ont été comparés.
 - Les cas « point » hors commune ne sont pas tous testés.
 - Le résultat dépend de l'état du service Géoplateforme au moment de la lecture ; une lecture qui échoue n'est jamais mise en cache.
