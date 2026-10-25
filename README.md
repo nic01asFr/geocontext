@@ -82,6 +82,7 @@ Ensuite :
 |---|---|
 | [docs/guide-technique.md](docs/guide-technique.md) | Guide d'ensemble : architecture, méthode, MCP, agent |
 | [docs/vitrine/index.html](docs/vitrine/index.html) | Présentation illustrée |
+| [docs/vitrine/SPEC.md](docs/vitrine/SPEC.md) | Format de la fiche `vitrine.json` et génération de la page |
 | [docs/structures.md](docs/structures.md) | Les pièces du dépôt : contexte, serveur MCP, MCP App, interface web |
 | [docs/dynamic-tools.md](docs/dynamic-tools.md) | Les sept outils et leurs valeurs contextuelles |
 | [docs/web-interface.md](docs/web-interface.md) | Interface web : disposition, tableaux, représentations, agent |

@@ -6,7 +6,7 @@ Ce document présente la conception de geocontext pour des équipes qui veulent 
 
 Un serveur MCP qui donne à un assistant (ou à une personne) un **contexte territorial** — où l'on est, quelles données existent là, lesquelles sont chargées — et qui lit les données **à la demande** chez leur producteur, principalement sur la Géoplateforme. Une interface web, un agent intégré et un client MCP quelconque agissent sur **le même contexte**.
 
-Le point de départ est le projet [mborne/geocontext](https://github.com/mborne/geocontext) incubé avec ignfab. Cette branche en reprend l'idée (rendre la Géoplateforme exploitable par un LLM sans copier les données) et l'étend à la navigation, à l'affichage et à la vérification des résultats.
+Le point de départ est le projet [mborne/geocontext](https://github.com/mborne/geocontext) incubé avec ignfab. Cette branche en reprend l'idée (rendre la Géoplateforme exploitable par un LLM en lisant les données à la demande, sans base de données propre ; seules les tuiles de l'interface web sont mises en cache sur disque) et l'étend à la navigation, à l'affichage et à la vérification des résultats.
 
 ## 2. Vue d'ensemble
 
