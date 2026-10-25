@@ -64,6 +64,20 @@ Zoom 17+    → bâtiments individuels
 
 Le niveau de zoom détermine le niveau territorial visible. Pas de sélecteur explicite nécessaire (mais disponible dans la barre de recherche pour forcer).
 
+## Représentation d'une couche
+
+Le bloc « Représentation » du panneau de données est affiché pour **toute** couche (points, lignes, surfaces) :
+
+| | Points | Lignes | Surfaces |
+|---|---|---|---|
+| Colorier par champ numérique (quantiles, 3 à 7 classes) | oui | oui | oui |
+| Colorier par valeur d'un champ catégoriel (2 à 12 valeurs) | oui | oui | oui |
+| Palette | oui | oui | oui |
+| Cercles proportionnels, chaleur, hexagones, grille | oui | non | non |
+| Relief du terrain, soleil | oui | oui | oui |
+
+Chaque coloration compare les comptes de la légende lue sur la carte à ceux du tableau et s'annule avec un message s'ils diffèrent. Les valeurs absentes forment une classe grise « (sans valeur) ». Un champ catégoriel de plus de 12 valeurs est proposé grisé, avec la raison. Les chaleurs, hexagones et grilles ne concernent que les points : une couche de surfaces n'y est pas représentée par ses centroïdes. Le type de la couche est contrôlé sur tous ses objets ; une couche à géométries mixtes est refusée avec un message.
+
 ## Le chat avec agent
 
 Le chat intègre un agent LLM standard qui utilise le serveur MCP. L'agent :

@@ -9,6 +9,10 @@ Pour chaque objet lu :
 - **à cheval** sur la limite : compté, et listé avec une colonne « Position / <niveau> » ;
 - **hors** : écarté, et **listé** (jamais abandonné en silence).
 
+Le décompte est fait sur la **géométrie exacte** de l'objet recoupée avec le contour exact du territoire : jamais sur un rectangle. Le rectangle englobant ne sert qu'à ramener les candidats ; au-delà de la limite de volume, le serveur ne renvoie **aucun objet ni total** du rectangle, seulement un refus explicite (côté MCP comme côté page).
+
+**Zone visible de la carte** (case « Limiter à la zone visible ») : la zone est un rectangle, et un objet n'est dans la zone que si sa géométrie (point, ligne, surface avec trous) a au moins un point commun avec ce rectangle. L'emprise rectangulaire de l'objet n'est qu'un préfiltre.
+
 Le total affiché sur la carte est celui du tableau. Si l'on ne peut pas le garantir, la couche est **refusée avec un message explicite** — il n'y a ni échantillon, ni total approché.
 
 ## Mise en œuvre

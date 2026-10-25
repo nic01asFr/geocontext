@@ -169,9 +169,15 @@ const GeoMap = {
 
   // ── couches thématiques ─────────────────────────────────────────
   _geom(features, recipe) {
-    const g = recipe?.geometryType || (() => { const t = features[0]?.geometry?.type || "Point"; return t.includes("Polygon") ? "polygon" : t.includes("Line") ? "line" : "point"; })();
+    // le type de la couche est contrôlé sur TOUS les objets (pas seulement le premier) : mélange ou type inconnu = refus explicite, jamais une couche amputée
+    const fam = (t) => (t ? (t.includes("Polygon") ? "polygon" : t.includes("Line") ? "line" : t.includes("Point") ? "point" : "autre:" + t) : null);
+    const types = new Set(features.map((f) => fam(f.geometry?.type)).filter(Boolean));
+    if (types.size > 1 || [...types].some((x) => x.startsWith("autre"))) throw new Error(`couche à géométries mixtes ou non gérées (${[...types].join(", ")}) : non représentable sur la carte sans en écarter une partie`);
+    const g = recipe?.geometryType || [...types][0] || "point";
+    if (types.size && !types.has(g)) throw new Error(`type de géométrie annoncé « ${g} » différent des géométries reçues (${[...types].join(", ")})`);
     return g;
   },
+
   _declarative(recipe, style, theme) {
     const c = recipe?.classification;
     const base = (GeoStyles.forTheme(theme || style?.theme));

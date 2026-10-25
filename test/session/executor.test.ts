@@ -467,6 +467,28 @@ describe("executeSource — attribute_with_fallback", () => {
 // ==========================================================================
 
 describe("executeSource — spatial pivot", () => {
+  test("volume au-delà de la limite exacte : refus explicite, aucun objet ni total du rectangle", async () => {
+    const source: SourceDef = {
+      id: "volumineux", label: "Volumineux", description: "Test", endpoint: "gpf_wfs" as any, typename: "ENVIRO:layer",
+      levels: ["commune"], theme: "environnement" as any, action: "test",
+      pivot: { strategy: "spatial", spatialOp: "bbox", from: "context.bbox" },
+      fields: [{ key: "nom", label: "Nom", type: "string" }], priority: "required",
+    };
+    const ctx = ctxLoray(); ctx.code = "99999"; // code absent du cache de contours des autres tests
+    const carre = { type: "Polygon", coordinates: [[[6.4, 47.1], [6.6, 47.1], [6.6, 47.2], [6.4, 47.2], [6.4, 47.1]]] };
+    mockFetch.mockImplementation(async (url: unknown) => String(url).includes("ADMINEXPRESS")
+      ? mockJsonResponse({ type: "FeatureCollection", features: [{ type: "Feature", geometry: carre, properties: {} }] })
+      : wfsResponse([{ nom: "Zone A" }], 30001));
+
+    const result = await executeSource(source, ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/30\s001 objets dans l'emprise, au-delà de 30\s000 : appartenance exacte non décidée/);
+    expect(result.error).toMatch(/Aucun résultat n'est donné.*rectangle englobant de la commune/);
+    expect(result.features).toHaveLength(0);
+    expect(result.layerSpec).toBeUndefined();
+  });
+
   test("pivot spatial BBOX : lecture exacte, refus explicite si le territoire n'a pas de contour surfacique", async () => {
     const source: SourceDef = {
       id: "spatial_source",

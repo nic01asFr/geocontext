@@ -446,7 +446,7 @@ const GeoFetcher = {
     const gpu = wfs && /^wfs_(du|sup):/.test(spec.typename || "");
     if (!ctx || !["commune", "epci", "departement", "region"].includes(ctx.level) || !ctx.code) return { features, controle: null };
     // Trop d'objets pour décider : aucune décision d'appartenance, déclaré (jamais présenté comme exact)
-    if (wfs && spec.exact?.indisponible) return { features, controle: { fait: false, niveau: ctx.level, erreur: `${spec.exact.raison}. Les objets affichés sont ceux du rectangle englobant ${this._deNiveau(ctx.level)} et peuvent déborder sur les territoires voisins` } };
+    if (wfs && spec.exact?.indisponible) throw new Error(`${spec.exact.raison}. Aucun objet du rectangle englobant ${this._deNiveau(ctx.level)} n'est affiché : l'appartenance exacte n'a pas pu être décidée.`);
     if (wfs && spec.exact) return this._appliquerExact(features, spec);
     // Points inline : commune seulement ; couches WFS : décision exacte du serveur (ci-dessus), le navigateur ne décide seul que pour le GPU en commune et pour le recoupement
     if (!wfs && (ctx.level !== "commune" || !features.some((f) => f.geometry?.type === "Point"))) return { features, controle: null };

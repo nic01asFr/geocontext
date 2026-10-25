@@ -51,6 +51,7 @@ Une boucle d'agent côté serveur, branchée sur **les mêmes outils** que le se
 | `AGENT_TOOL_RESULT_CHARS` | 7 000 | résultat d'outil montré au modèle (la troncature est dite) |
 | `AGENT_MAX_OUTPUT_TOKENS` | 1 500 | sortie du modèle par étape |
 | `AGENT_TRUST_PROXY` | non | à `1` seulement derrière un proxy inverse de confiance : l'adresse est alors la dernière entrée de `X-Forwarded-For` ; sinon l'adresse de la connexion |
+| `PUBLIC_BASE_URL` | — | adresse publique de l'interface, donnée dans les textes d'outils (« Visualisez ces données… ») ; sans elle, en mode HTTP, `http://localhost:<PORT>` |
 
 La clé n'est écrite ni dans les réponses, ni dans les journaux, ni dans les erreurs. Les compteurs sont en mémoire et purgés quand ils sont périmés.
 

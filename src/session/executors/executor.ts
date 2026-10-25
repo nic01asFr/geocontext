@@ -202,8 +202,8 @@ async function lireSource(
     ex = await lireExact(endpoint.baseUrl, source.typename!, cql, ctx.code!, champs, endpoint.timeoutMs, mode);
   } catch (e) {
     if (!(e instanceof ErreurVolume)) throw e;
-    // Trop d'objets pour décider : lecture partielle déclarée comme telle, total = celui du RECTANGLE (borne haute), jamais présenté comme exact.
-    return { raw: await fetchWfs(endpoint, source, cql), exact: { indisponible: true, raison: e.message, rectangle: e.attendu, niveau: mode.niveau } };
+    // Trop d'objets pour décider de l'appartenance : aucune lecture du rectangle (ni échantillon, ni total) ; l'appelant renvoie un refus explicite.
+    return { raw: { features: [] }, exact: { indisponible: true, raison: e.message, rectangle: e.attendu, niveau: mode.niveau } };
   }
   const maxF = source.constraints?.maxFeaturesOverride ?? endpoint.maxFeatures;
   return {
@@ -214,6 +214,13 @@ async function lireSource(
 type ExactInfo =
   | { lus: number; gardes: number; cheval: number; chevalGids: string[]; ecartes: Array<{ gid: string; libelle: string | null; raison: string }>; cle: string; niveau: string; indisponible?: undefined }
   | { indisponible: true; raison: string; rectangle: number; niveau: string };
+
+/** Refus explicite quand l'appartenance exacte ne peut pas être décidée : jamais de résultat sur le rectangle englobant. */
+function refusVolume(source: SourceDef, exact: ExactInfo | undefined): SourceResult | null {
+  if (!exact || !("rectangle" in exact)) return null;
+  const nom = ({ commune: "de la commune", epci: "de l'EPCI", departement: "du département", region: "de la région" } as Record<string, string>)[exact.niveau] || "du territoire";
+  return emptyResult(source.id, `${exact.raison}. Aucun résultat n'est donné (ni total, ni échantillon, aucun objet du rectangle englobant ${nom}) : choisir un territoire plus petit, par exemple une commune.`);
+}
 
 /** Couches GPU (urbanisme, servitudes) au niveau commune : l'emprise rectangulaire est remplacée par un sur-ensemble serré du contour communal. */
 async function resserrer(source: SourceDef, ctx: NavigationContext, cql: string): Promise<string> {
@@ -266,6 +273,7 @@ async function executeWfsSource(
         }
         cqlPrimaire = await resserrer(source, ctx, cqlPrimaire);
         const lecP = await lireSource(endpoint, source, ctx, cqlPrimaire);
+        const refusP = refusVolume(source, lecP.exact); if (refusP) return refusP;
         const primaryResult = lecP.raw;
         if (primaryResult.features.length > 0) {
           resolvedPartition = result.primary.resolvedPartition;
@@ -322,6 +330,7 @@ async function executeWfsSource(
 
   // 3. Exécuter la requête WFS
   const lec = await lireSource(endpoint, source, ctx, cqlFilter!);
+  const refus = refusVolume(source, lec.exact); if (refus) return refus;
   const rawResult = lec.raw;
 
   // Si tronqué et pas de totalCount, lancer un count en parallèle

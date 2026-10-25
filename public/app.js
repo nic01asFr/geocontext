@@ -332,6 +332,8 @@
         const action = String(ev.args?.action ?? "");
         const pre = { isError: false, content: [{ type: "text", text: ev.texte || "" }], ...(ev.layerSpecs ? { structuredContent: { layerSpecs: ev.layerSpecs } } : {}) };
         const b = await doAction(action, pre);
+        // la relecture de la carte arrive après le chargement (l'Atlas peut démarrer tard) : attente BORNÉE avant l'accusé, jamais d'affirmation sans lecture
+        if (b.couches.length && window.GeoMap?.el) { const t0 = Date.now(); while (Date.now() - t0 < 12000 && (DataPanel._verified == null || DataPanel._busy || (DataPanel._dirty && DataPanel._dirty.size))) await new Promise((r) => setTimeout(r, 250)); }
         const nv0 = DataPanel._verified;
         const lu = nv0 && nv0.compte != null; // la carte a-t-elle été relue ?
         const parts = b.couches.map((c) => lu ? `${c.label} : ${n(c.n)} éléments affichés` : `${c.label} : ${n(c.n)} éléments chargés dans le panneau et transmis à la carte`);

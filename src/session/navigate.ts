@@ -65,6 +65,13 @@ const CODES_REGION_ET_DEPARTEMENT = new Set(["01", "02", "03", "04", "06", "11",
 const sansAccent = (x: string) => x.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 const ALIAS_REGION: Record<string, string> = { paca: "93", idf: "11", aura: "84" };
 
+const normNom = (x: string) => sansAccent(x).replace(/\bst\b/g, "saint").replace(/\bste\b/g, "sainte");
+/** Le nom trouvé figure-t-il, mot pour mot, dans la requête ? (« St Tropez » ↔ « Saint-Tropez » ; « Cassis 13260 » ↔ « Cassis » ; « France » ≠ « Fort-de-France ») */
+export function nomCorrespond(requete: string, nom: string): boolean {
+  const n = normNom(nom); if (!n) return false;
+  return ` ${normNom(requete)} `.includes(` ${n} `);
+}
+
 interface EntiteAdmin { niveau: "region" | "departement"; code: string; nom: string }
 let listeAdminP: Promise<EntiteAdmin[]> | null = null;
 /** Regions et departements (nom, code), lus une fois dans ADMIN EXPRESS ; une erreur n'est pas memorisee. */
@@ -431,6 +438,11 @@ async function resolveTextSearch(text: string): Promise<NavigateResult> {
 
     const props = features[0].properties ?? {};
     const citycode = props.citycode;
+    // Le géocodeur renvoie toujours « la plus proche » : sans correspondance de nom, on ne choisit pas en silence (ex. « France » → Fort-de-France).
+    const nomTrouve = String(props.city ?? props.name ?? "");
+    if (nomTrouve && !nomCorrespond(text, nomTrouve)) {
+      return { success: false, error: `« ${text} » ne correspond à aucune commune par son nom : le géocodeur propose « ${nomTrouve} »${citycode ? ` (${citycode})` : ""}. Si c'est bien celle-ci, précisez « commune:${citycode ?? "code INSEE"} » ; sinon reformulez avec le nom exact de la commune, de l'EPCI, du département ou de la région (la France entière n'est pas un territoire navigable).` };
+    }
     if (citycode && /^\d{5}$/.test(citycode)) {
       return resolveCommune(citycode);
     }
