@@ -826,8 +826,8 @@ export class GeoContextSession {
     const layerNames = this.ctx.layers.map((l) => l.name);
 
     const description = layerNames.length > 0
-      ? `Carte -- couches actives : ${layerNames.join(", ")}. Operations : show, hide, filter (champ + values | min/max | texte), clear_filter. Le resultat est l'etat REELLEMENT affiche (compte, total) relu par la carte ; une erreur est renvoyee si la carte ne confirme pas.`
-      : "Gerer les couches cartographiques. ? Aucune couche active -- executez une action thematique d'abord.";
+      ? `Carte — couches actives : ${layerNames.join(", ")}. Opérations : show, hide, filter (champ + values | min/max | texte), clear_filter. Le résultat est l'état RÉELLEMENT affiché (compte, total) relu par la carte ; une erreur est renvoyée si la carte ne confirme pas.`
+      : "Gérer les couches cartographiques. ⚠ Aucune couche active — exécutez d'abord une action thématique.";
 
     return {
       name: "map",

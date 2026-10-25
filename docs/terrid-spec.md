@@ -74,13 +74,13 @@ search(keywords)     — Chercher un lieu, une donnée, un type WFS
 back()               — Remonter d'un cran
 ```
 
-### Tools contextuels
+### Autres outils (toujours listés ; la mention « apparaît quand » de la conception d'origine est abandonnée, voir dynamic-tools.md)
 
 ```
-action(action, filter?)    — Consulter une thématique (apparaît quand territoire résolu)
-map(operation, layer, params?)  — Agir sur la carte (apparaît quand données chargées)
-compare(with_theme)        — Croiser deux thématiques (apparaît quand thème actif)
-select(feature_id)         — Sélectionner une feature (apparaît quand features visibles)
+action(action, filter?)    — Consulter une thématique (utile une fois un territoire résolu)
+map(operation, layer, params?)  — Agir sur la carte (utile une fois des données chargées)
+compare(with_theme)        — Croiser deux thématiques (utile avec un thème actif)
+select(feature_id)         — Sélectionner une feature (utile avec des objets chargés)
 ```
 
 ### Chemins sémantiques

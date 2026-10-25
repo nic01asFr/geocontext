@@ -7,11 +7,11 @@ geocontext est un serveur MCP qui fournit du contexte spatial structuré. Il ser
 - **Interface web** (carte + panneaux + chat) — l'humain navigue par clics et langage naturel
 - **Client MCP direct** (Claude Desktop, Cursor, etc.) — le LLM navigue par tool calls
 
-Les deux parcourent le **même arbre de navigation**, produisent le **même contexte**, reçoivent les **mêmes tools filtrés**.
+Les deux parcourent le **même arbre de navigation**, produisent le **même contexte**, reçoivent les **mêmes outils**, dont les valeurs proposées dépendent du contexte.
 
 ## Principe fondamental
 
-> Le contexte courant EST l'interface. L'interface pilote le contexte. Le contexte filtre les tools. Les tools modifient le contexte.
+> Le contexte courant EST l'interface. L'interface pilote le contexte. Le contexte adapte les outils. Les tools modifient le contexte.
 
 ```
           ┌──────────────────────────────────────┐
@@ -96,7 +96,7 @@ src/
 │   ├── registry/       # Points d'accès, sources par thème, pivots, champs, filtres
 │   ├── executors/      # Exécution WFS/REST, mode exact
 │   └── styling/        # Génération déterministe de styles de couche
-├── tools/              # Outils historiques (mcp-framework), utilisés comme briques
+├── tools/              # Outils du projet d'origine (mcp-framework), conservés mais non exposés par le serveur actuel
 ├── gpf/                # Clients Géoplateforme
 └── helpers/
 public/                 # Interface web ; public/ui/ = MCP App
@@ -124,3 +124,5 @@ Pour le détail de chaque pièce : [structures.md](structures.md).
 | [territoire-exact.md](territoire-exact.md) | Appartenance exacte à un territoire |
 | [api-http-agent.md](api-http-agent.md) | Routes HTTP, agent, sécurité, recherche |
 | [usages-professionnels.md](usages-professionnels.md) | Fiabilité et limites |
+| [guide-technique.md](guide-technique.md) | Guide d'ensemble : architecture, méthode, MCP, agent |
+| [vitrine/index.html](vitrine/index.html) | Présentation illustrée |

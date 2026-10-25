@@ -1,68 +1,35 @@
-# Interface web — geocontext
+# Interface web
 
-> Ce document est un document de conception d'origine ; certaines parties décrivent une intention (zoom adaptatif, fiches détaillées, pile technique « envisagée »). L'implémentation actuelle est décrite dans [structures.md](structures.md).
+Application sans étape de compilation (JavaScript natif), servie par le mode `http` du serveur. Elle parle au serveur par `/mcp`, comme n'importe quel client MCP, et partage **le même contexte de session** que l'agent intégré et les clients MCP. Vue d'ensemble : [guide-technique.md](guide-technique.md).
 
-## Principe
+![Commune de Cassis : carte, thèmes, fil territorial](vitrine/img/commune.webp)
 
-L'interface web est un client du serveur MCP geocontext (en mode `http`). Elle combine une carte interactive, des panneaux thématiques et un chat avec agent LLM. Les trois partagent le **même contexte de session MCP**.
+## Disposition
 
-## Layout
+| Zone | Contenu | Fichier |
+|---|---|---|
+| Barre supérieure | recherche (nom, code INSEE, coordonnées, identifiant de parcelle), thème clair/sombre, ouverture de l'agent | `app.js` |
+| Panneau « Thèmes » (gauche) | thèmes disponibles pour le niveau courant, avec le nombre de couches ; actions d'un thème | `context-panel.js` |
+| Fil territorial (haut) | région › département › EPCI › commune › parcelle ; chaque maillon ramène à ce niveau | `context-panel.js` |
+| Carte | composant externe `<atlas-bi>` ; bouton « Pointer » pour naviguer vers un point cliqué ; bulle « Naviguer » sur les contours de contexte | `map-atlas.js` |
+| Panneau de données (bas) | statistiques, filtres, tableau, représentation, export, objets écartés | `data-panel.js` |
+| Agent (droite) | conversation, étapes exécutées et leur résultat | `chat.js` |
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ 🔍 [_______________] [niveau ▾]            geocontext      [?][⚙]│
-├───────────┬──────────────────────────────────────┬───────────────┤
-│           │                                      │               │
-│ CONTEXTE  │              CARTE                   │    CHAT       │
-│           │                                      │               │
-│ ▸ BFC     │         ┌────────────┐               │ User: ...     │
-│  ▸ Doubs  │         │   carte    │               │               │
-│   ▸ CC..  │         │  MapLibre  │               │ Agent: ...    │
-│    ► Loray│         │            │               │               │
-│           │         └────────────┘               │               │
-│           │                                      │               │
-│ THÈMES   │  ┌─────────────────────────────┐     │               │
-│ ● Urbanis.│  │  Données thématiques        │     │               │
-│ ○ Cadastre│  │  (tableaux, stats, listes)  │     │               │
-│ ○ Risques │  └─────────────────────────────┘     │               │
-│ ○ Environ.│                                      │               │
-│           │                                      │ User: ____    │
-└───────────┴──────────────────────────────────────┴───────────────┘
-```
+Les contours de contexte affichés sur la carte changent avec le zoom (région, département, EPCI, commune). Une carte MapLibre simple reste disponible avec `?carte=maplibre` (`map.js`).
 
-### Trois colonnes, un contexte
+## Données, filtres et vérification
 
-| Zone | Rôle | Interaction |
-|------|------|-------------|
-| **Panneau gauche** | Hiérarchie + thèmes | Clics = `navigate()` et `action()` |
-| **Carte + données** | Visualisation spatiale + tableaux | Clics carte = `navigate()`, couches = `map()` |
-| **Chat** | Langage naturel | Messages → LLM → tool calls MCP |
+Chaque couche chargée apparaît dans le panneau de données : un total, des statistiques par champ (catégories, minimum/maximum, valeurs absentes), des filtres par champ et un tableau. Quand la couche a une date, un axe temporel s'ajoute.
 
-Toute interaction dans une zone modifie le contexte partagé. Les deux autres zones réagissent.
+- **Tableau = carte.** Après chaque chargement, filtre ou coloration, le nombre d'objets lus sur la carte est comparé à celui du tableau ; en cas d'écart, l'opération est annulée avec un message. Si la carte ne peut pas être relue, la page le dit.
+- **Objets écartés.** Pour les couches à territoire exact, les objets hors du contour sont écartés et listés (« liste des écartés ») ; ceux qui chevauchent la limite sont conservés et marqués (voir [territoire-exact.md](territoire-exact.md)).
+- **Zone visible.** La case « Limiter à la zone visible » restreint le tableau aux objets dont la géométrie touche la fenêtre de la carte.
+- **Tableau ↔ carte.** Survoler une ligne du tableau surligne l'objet sur la carte ; cliquer un objet de la carte sélectionne sa ligne.
+- **Export.** Les lignes retenues sont exportées en CSV, avec le total et les filtres en note.
 
-## La carte comme pivot de navigation
+![Zonages de Cassis : 88 objets, 5 écartés, 20 à cheval sur la limite](vitrine/img/zonages-ecartes.webp)
 
-La carte n'est pas décorative. C'est le **pivot central** de la navigation :
-
-| Action sur la carte | Résultat |
-|---|---|
-| Clic sur un point | Reverse geocoding → fiche commune |
-| Clic sur une parcelle (zoom cadastral) | Navigation vers fiche parcelle |
-| Clic sur un bâtiment (zoom max) | Navigation vers fiche bâtiment |
-| Sélection d'une thématique | Couche superposée sur la carte |
-| Hover sur une feature carte | Tooltip avec infos clés |
-| Hover sur une ligne du tableau | Feature correspondante surlignée |
-
-### Zoom adaptatif = niveau adaptatif
-
-```
-Zoom 6-8    → régions/départements
-Zoom 9-11   → EPCI/communes
-Zoom 12-16  → parcelles cadastrales
-Zoom 17+    → bâtiments individuels
-```
-
-Le niveau de zoom détermine le niveau territorial visible. Pas de sélecteur explicite nécessaire (mais disponible dans la barre de recherche pour forcer).
+![Filtre « type de zone = U » : 39 sur 88, tableau et carte concordent](vitrine/img/filtre-tableau-carte.webp)
 
 ## Représentation d'une couche
 
@@ -78,124 +45,22 @@ Le bloc « Représentation » du panneau de données est affiché pour **toute**
 
 Chaque coloration compare les comptes de la légende lue sur la carte à ceux du tableau et s'annule avec un message s'ils diffèrent. Les valeurs absentes forment une classe grise « (sans valeur) ». Un champ catégoriel de plus de 12 valeurs est proposé grisé, avec la raison. Les chaleurs, hexagones et grilles ne concernent que les points : une couche de surfaces n'y est pas représentée par ses centroïdes. Le type de la couche est contrôlé sur tous ses objets ; une couche à géométries mixtes est refusée avec un message.
 
-## Le chat avec agent
+## Agent
 
-Le chat intègre un agent LLM standard qui utilise le serveur MCP. L'agent :
+Le panneau de droite pilote l'**agent intégré** (voir [api-http-agent.md](api-http-agent.md)) : il enchaîne les mêmes outils que le serveur MCP et agit sur la même session, donc sur ce qui est à l'écran. Chaque étape (navigation, chargement, filtre) s'affiche avec son résultat, y compris une erreur ; la page **accuse ce qu'elle a réellement affiché** avant que l'agent poursuive.
 
-1. **Lit le contexte courant** — il sait où l'utilisateur se trouve (territoire, thème, couches)
-2. **Reçoit des tools filtrés** — seuls les tools pertinents pour le contexte courant
-3. **Peut agir sur la vue** — ses tool calls modifient la carte et les panneaux
+![Agent : parcelle, bâtiments, filtre par usage, réponse chiffrée](vitrine/img/agent.webp)
 
-### Flux chat
-
-```
-User tape: "Montre-moi les zones inondables"
-    │
-    ▼
-Frontend construit le prompt:
-  - System: contexte courant (commune Loray, thème urbanisme, bbox...)
-  - Tools: filtrés pour ce contexte
-  - Message: "Montre-moi les zones inondables"
-    │
-    ▼
-Claude API
-  → tool_use: action("risques") ou wfs_getFeatures(GEORISQUES, bbox)
-    │
-    ▼
-Serveur MCP geocontext
-  → exécute, retourne GeoJSON
-    │
-    ▼
-Frontend
-  → ajoute la couche sur la carte
-  → affiche la réponse textuelle dans le chat
-  → met à jour le contexte partagé
-```
-
-### Actions de l'agent sur la vue
-
-L'agent peut retourner des commandes de vue dans ses réponses :
-
-```typescript
-type MapAction =
-  | { type: "addLayer"; geojson: GeoJSON; style: LayerStyle; name: string }
-  | { type: "removeLayer"; name: string }
-  | { type: "setFilter"; layer: string; filter: Expression }
-  | { type: "fitBounds"; bbox: BBox }
-  | { type: "highlight"; featureIds: string[] }
-  | { type: "setTheme"; theme: string }
-  | { type: "navigate"; territory: string; level: string }
-  | { type: "createThematicMap"; config: ThematicMapConfig }
-```
-
-## Fiches par niveau
-
-### Fiche commune (coeur du service)
-
-```
-┌─ LORAY (25349) ──────────────────────────────────────────┐
-│  Population: 450    Superficie: 14,2 km²    Alt: 810 m   │
-│                                                           │
-│  ┌─────────┬──────────┬────────┬─────────┬──────────┐    │
-│  │Urbanisme│ Cadastre │Risques │ Environ.│ Économie │    │
-│  └────┬────┴──────────┴────────┴─────────┴──────────┘    │
-│       │                                                   │
-│  URBANISME                                                │
-│  Document : PLU opposable (15/03/2018)                    │
-│  Zonages : ■ U 12ha ■ AU 3ha ■ A 340ha ■ N 580ha        │
-│  Prescriptions (2) · Servitudes (1)                       │
-└───────────────────────────────────────────────────────────┘
-```
-
-### Fiche parcelle
-
-```
-┌─ PARCELLE 25349000AB0023 ────────────────────────────────┐
-│  Section AB · Contenance: 1 200 m² · Zone PLU: U         │
-│                                                           │
-│  Transactions DVF                                         │
-│  2019-06-12  Vente maison   85 000 €   95 m²             │
-│                                                           │
-│  Bâtiments (2) via RNB                                    │
-│  · Maison 95 m² · 1975 · DPE D                           │
-│  · Dépendance 25 m²                                      │
-└───────────────────────────────────────────────────────────┘
-```
-
-### Fiche bâtiment
-
-```
-┌─ BÂTIMENT A1B2-C3D4-E5F6 ───────────────────────────────┐
-│  Parcelle: AB0023 · Hauteur: 8 m · Construction: 1975    │
-│                                                           │
-│  Énergie (BDNB)                                           │
-│  DPE : D · 215 kWh/m²/an · Chauffage fioul               │
-│  Isolation : non isolé · Surchauffe été : risque moyen    │
-└───────────────────────────────────────────────────────────┘
-```
-
-## Stack technique envisagée
-
-| Composant | Technologie | Rôle |
-|-----------|-------------|------|
-| Carte | MapLibre GL JS | Rendu tuiles vectorielles, interactions |
-| Fond de carte | Tuiles IGN Plan/Ortho/Cadastre | Fonds cartographiques |
-| UI | Vue.js ou Svelte | Interface réactive légère |
-| Client MCP | HTTP vers geocontext | Appels tools et resources |
-| LLM | Claude API (Sonnet/Haiku) | Agent conversationnel |
-| Backend | geocontext en mode http | Serveur MCP unique |
-
-Le frontend n'a pas de backend propre. Il appelle directement le serveur MCP geocontext via HTTP et l'API Claude pour le chat.
+Sans modèle configuré, le panneau indique « sans agent » ; tout le reste fonctionne.
 
 ## Mode sans LLM
 
-L'interface fonctionne complètement sans LLM. La carte + les panneaux + la recherche suffisent pour naviguer et consulter toutes les données. Le chat est un enrichissement optionnel.
+La navigation, les panneaux, les tableaux, les filtres et l'export fonctionnent sans modèle de langage ; seul l'agent est désactivé.
 
-```
-SANS LLM                           AVEC LLM
-────────                            ────────
-Clic carte → données               Idem + langage naturel
-Onglets thématiques                 Idem + questions complexes
-Recherche textuelle                 Idem + synthèse narrative
-Navigation manuelle                 Navigation guidée par l'agent
-```
+## Intentions de conception (non implémentées)
+
+Ces éléments figuraient dans la conception d'origine. Ils ne sont pas réalisés ; les valeurs des maquettes sont illustratives.
+
+- Navigation par zoom seul, sans sélecteur de niveau (le zoom pilote aujourd'hui l'affichage des contours, pas le niveau navigué).
+- Fiches détaillées par niveau (commune, parcelle, bâtiment) regroupant thèmes, transactions et énergie sur une seule vue.
+- Navigation vers un bâtiment (le niveau existe dans le modèle ; l'identifiant BD TOPO est refusé explicitement).

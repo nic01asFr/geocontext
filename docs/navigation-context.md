@@ -2,11 +2,11 @@
 
 ## Principe central
 
-> **Le contexte courant EST l'interface. L'interface pilote le contexte. Le contexte filtre les tools. Les tools modifient le contexte.**
+> **Le contexte courant EST l'interface. L'interface pilote le contexte. Le contexte adapte les outils. Les tools modifient le contexte.**
 
-Que le pilote soit un humain (clics sur la carte) ou un LLM (tool calls MCP), chaque action est une **navigation** qui redéfinit le contexte. Le contexte résultant détermine les tools, resources et actions disponibles au tour suivant.
+Que le pilote soit un humain (clics sur la carte) ou un LLM (tool calls MCP), chaque action est une **navigation** qui redéfinit le contexte. Le contexte résultant détermine les descriptions, les valeurs autorisées, les ressources et les actions proposées au tour suivant.
 
-C'est identique à un menu de logiciel : chaque clic ouvre un sous-menu contextuel. Ici, chaque tool call ouvre de nouveaux tools.
+C'est comparable à un menu de logiciel : chaque clic ouvre un sous-menu contextuel. Ici, chaque appel d'outil change les **valeurs proposées** aux outils suivants (les sept outils restent toujours listés ; voir [dynamic-tools.md](dynamic-tools.md)).
 
 ## NavigationContext — l'état de session
 
@@ -154,7 +154,7 @@ Aucune invention de protocole. Tout repose sur des mécanismes MCP natifs :
 
 | Besoin | Mécanisme MCP |
 |---|---|
-| Le contexte filtre les tools | `tools/list_changed` notification + `tools/list` dynamique |
+| Le contexte adapte les outils | `tools/list` recalculé à chaque appel (descriptions et `enum`) ; notification `tools/list_changed` émise, mais non relue par tous les clients |
 | Les descriptions s'adaptent | Tool description recalculée par session |
 | Les paramètres sont contraints | Zod enums dynamiques dans le schema |
 | Le LLM sait où il est | Resource `geocontext://context` |

@@ -52,7 +52,7 @@ npx -y @modelcontextprotocol/inspector node dist/index.js
 │  Session Layer (src/session/)                            │
 │  session.ts → 7 handlers + dynamic tool builders         │
 │  navigate.ts → 6 territory resolution strategies         │
-│  registry/ → 16 endpoints, 30+ sources, field transforms │
+│  registry/ → 49 sources, 10 themes, field transforms │
 │  executors/ → WFS/REST execution with CQL, retry, sort   │
 ├─────────────────────────────────────────────────────────┤
 │  Géoplateforme Clients (src/gpf/)                        │
@@ -85,8 +85,8 @@ Core of the application. Each session maintains a `NavigationContext` (territory
 
 | File | Role |
 |------|------|
-| `endpoints.ts` | 16 Géoplateforme endpoints (WFS, REST) with URLs, retry policies, CRS |
-| `sources/*.ts` | 30+ source definitions organized by theme (urbanisme, cadastre, risques…) |
+| `endpoints.ts` | 16 endpoint definitions (WFS, REST), 8 used by sources; URLs, retry policies, CRS |
+| `sources/*.ts` | 49 source definitions organized by theme (urbanisme, cadastre, risques…) |
 | `types.ts` | All type definitions: SourceDef, EndpointDef, PivotStrategy, FieldDef, LayerSpec |
 | `pivot.ts` | CQL filter construction from context (attribute, spatial, composite, fallback) |
 | `fields.ts` | Field transformations (date parsing, unit conversion, enum mapping) |
@@ -96,7 +96,7 @@ Core of the application. Each session maintains a `NavigationContext` (territory
 
 ### Static Tools (`src/tools/`)
 
-Legacy tools extending `MCPTool` from mcp-framework. Still auto-discovered and available alongside dynamic tools. The session layer orchestrates them internally.
+Tools of the original project (`MCPTool` from mcp-framework). Kept in the repository but **not exposed** by the current server: `src/index.ts` only publishes the session tools (`session.getTools()`). The session layer relies on the clients in `src/gpf/`.
 
 ### Géoplateforme Clients (`src/gpf/`)
 

@@ -23,11 +23,26 @@ L'idée est ici d'**expérimenter la conception d'un MCP rendant les données et
 
 - **Ne pas copier les données de la Géoplateforme** (but : identifier les améliorations possibles sur le services plutôt que les doublonner)
 - **Limiter au maximum la taille des réponses** (but : optimiser le nombre de jeton / éviter les hallucinations / pouvoir utiliser des modèles locaux)
-- ...
+- **Dire ce qui est vérifié** : un résultat est soit complet et contrôlé, soit refusé avec un message ; jamais approché en silence (voir [territoire-exact.md](docs/territoire-exact.md)).
+- **Un seul contexte pour tous les clients** : client MCP, interface web et agent intégré agissent sur la même session.
+
+## Ce que fait cette version
+
+Au-delà des services unitaires du projet d'origine, cette version ajoute une **navigation territoriale** (région → département → EPCI → commune → parcelle), un **registre de 49 sources** réparties en 10 thèmes, une **interface web** (carte, tableaux, filtres, représentations), un **agent intégré** et une **MCP App**. Les données restent chez leur producteur.
+
+![Parcelle de Cassis : bâtiments BD TOPO, tableau et carte concordent](docs/vitrine/img/parcelle-batiments.webp)
+
+- Présentation illustrée : [docs/vitrine/index.html](docs/vitrine/index.html)
+- Guide d'ensemble (architecture, méthode, MCP, agent) : [docs/guide-technique.md](docs/guide-technique.md)
+- État, limites et usages : [docs/usages-professionnels.md](docs/usages-professionnels.md)
+
+C'est un prototype : voir les limites connues dans le guide.
 
 ## Utilisation
 
 ### Utilisation de la version publiée
+
+Cette commande installe la version publiée du projet d'origine. Pour utiliser cette version-ci, passer par la construction locale (section « Développement »).
 
 Par exemple, avec "Cursor Settings / MCP / Add server" :
 
@@ -65,7 +80,11 @@ Ensuite :
 
 | Document | Contenu |
 |---|---|
+| [docs/guide-technique.md](docs/guide-technique.md) | Guide d'ensemble : architecture, méthode, MCP, agent |
+| [docs/vitrine/index.html](docs/vitrine/index.html) | Présentation illustrée |
 | [docs/structures.md](docs/structures.md) | Les pièces du dépôt : contexte, serveur MCP, MCP App, interface web |
+| [docs/dynamic-tools.md](docs/dynamic-tools.md) | Les sept outils et leurs valeurs contextuelles |
+| [docs/web-interface.md](docs/web-interface.md) | Interface web : disposition, tableaux, représentations, agent |
 | [docs/api-http-agent.md](docs/api-http-agent.md) | Routes HTTP, agent intégré, sécurité, état de la recherche |
 | [docs/territoire-exact.md](docs/territoire-exact.md) | Appartenance exacte à un territoire : règles et limites |
 | [docs/usages-professionnels.md](docs/usages-professionnels.md) | Ce qui est fiable, ce qui ne l'est pas |
@@ -87,13 +106,30 @@ npm run build
 ```json
 {
   "mcpServers": {
-    "mcp-helloworld": {
+    "geocontext": {
       "command": "node",
       "args":["/chemin/absolu/vers/geocontext/dist/index.js"]
     }
   }
 }
 ```
+
+### Interface web et agent
+
+```bash
+TRANSPORT_TYPE=http npm start
+# → http://localhost:3000
+```
+
+L'interface fonctionne sans modèle de langage. L'agent intégré s'active en renseignant `AGENT_LLM_BASE_URL`, `AGENT_LLM_MODEL` et `AGENT_LLM_API_KEY` (API de type « chat completions »). Le mode `http` n'a **pas d'authentification** : ne pas l'exposer tel quel (voir [docs/api-http-agent.md](docs/api-http-agent.md)). Les cartes chargent le composant Atlas depuis un site tiers et les fonds depuis la Géoplateforme : un accès réseau sortant est nécessaire.
+
+### Tests
+
+```bash
+npm test
+```
+
+Une partie des tests appelle la Géoplateforme réelle (réseau nécessaire).
 
 ### Debug de la version locale
 
@@ -108,63 +144,33 @@ Pour une utilisation avancée :
 | Nom              | Description                                                                                                          | Valeur par défaut |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------- |
 | `TRANSPORT_TYPE` | [Transport](https://mcp-framework.com/docs/Transports/transports-overview) permet de choisir entre "stdio" et "http" | "stdio"           |
+| `PORT`           | Port du mode `http`                                                                                                  | 3000              |
+| `PUBLIC_BASE_URL`| Adresse publique de l'interface, citée dans les textes d'outils                                                      | `http://localhost:<PORT>` |
+| `AGENT_*`        | Agent intégré : modèle, bornes, quotas (voir [docs/api-http-agent.md](docs/api-http-agent.md))                      | agent désactivé   |
 
 ## Fonctionnalités
 
-### Utiliser des services spatiaux
+### Outils exposés par le serveur
 
-Quelques services de la Géoplateforme :
+Sept outils, toujours listés, dont les descriptions et valeurs autorisées dépendent du contexte ([détails](docs/dynamic-tools.md)) :
 
-* [geocode(text)](src/tools/GeocodeTool.ts) s'appuie sur le [service d’autocomplétion de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/autocompletion) pour **convertir un nom de lieu en position (lon,lat)**.
+| Outil | Rôle |
+|---|---|
+| `navigate` | résoudre un territoire : nom, code INSEE, coordonnées, identifiant de parcelle, département, SIREN d'EPCI |
+| `action` | charger un thème (identité, urbanisme, cadastre, risques, environnement, transport, hydrologie, bâti, énergie, économie) ou une donnée précise |
+| `map` | afficher, masquer, filtrer une couche ; le résultat est l'état relu sur la carte |
+| `compare` | croiser deux thèmes sur le même territoire |
+| `select` | se positionner sur un objet chargé |
+| `search` | rechercher un lieu, une donnée ou un type de couche |
+| `back` | revenir à l'état précédent |
 
-> Ex : Quelle est la position (lon,lat) de la mairie de Vincennes?
+> Ex : « Quels sont les zonages du PLU de Cassis ? » puis « Garde seulement les zones U. »
+>
+> Ex : « Combien de bâtiments sur la parcelle 13022000CE0185, et quels usages ? »
 
-* [altitude(lon,lat)](src/tools/AltitudeTool.ts) s'appuie sur le [service de calcul altimétrique de la Géoplateforme](https://geoservices.ign.fr/documentation/services/services-geoplateforme/altimetrie) pour **convertir une position en altitude**. 
+### Projet d'origine : outils par service
 
-> Ex : Quelle est l'altitude de la mairie de Loray (25)?
-
-### Recherche d'informations pour un lieu
-
-L'idée est ici de répondre à des précises en traitant côté serveur les appels aux services WFS de la Géoplateforme :
-
-* [adminexpress(lon,lat)](src/tools/AdminexpressTool.ts) permet de **récupérer les informations administratives (commune, département, région,...)** pour un lieu donné par sa position.
-
-> Ex : Quelles sont les informations administrative pour la mairie de Vincennes?
-
-* [cadastre(lon,lat)](src/tools/CadastreTool.ts) permet de **récupérer les informations cadastrales (parcelle, feuille,...)**.
-
-> Ex : Quelles sont les informations du cadastre pour la mairie de Vincennes?
-
-* [urbanisme(lon,lat)](src/tools/UrbanismeTool.ts) permet de **récupérer les informations d'urbanisme (PLU,POS,CC,PSMV)**
-
-> Ex : Quel est le document PLU en vigueur pour le port de Marseille?
-
-* [assiette_sup(lon,lat)](src/tools/AssietteSupTool.ts) permet de **récupérer les Servitude d'Utilité Publiques (SUP)**
-
-### Explorer les données vecteurs
-
-#### Explorer les tables
-
-* [gpf_wfs_list_types()](src/tools/GpfWfsListTypesTool.ts) pour **lister les tables disponibles sur le WFS de la Géoplateforme** ([GetCapabilities](https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetCapabilities)) - **déprécié (trop de résultats)** 
-* [gpf_wfs_search_types(keywords,max_results=10)](src/tools/GpfSearchFeatureTypes.ts) pour **rechercher les tables disponibles sur le WFS de la Géoplateforme** ([GetCapabilities](https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetCapabilities))
-
-> - Quels sont les millésimes ADMINEXPRESS disponibles sur la Géoplateforme?
-> - Quelle est la table de la BDTOPO correspondant aux bâtiments?
-> - Dans quelle table de la BDTOPO peut-on trouver les ponts?
-
-#### Explorer la structure des tables
-
-* [gpf_wfs_describe_type(typename)](src/tools/GpfWfsDescribeTypeTool.ts) pour récupérer le **schéma d'une table** ([DescribeFeatureType](https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typename=ADMINEXPRESS-COG.LATEST:commune&outputFormat=application/json))
-
-> - Quelles sont les informations disponibles pour les communes avec ADMINEXPRESS-COG.LATEST?
-> - Compare le modèle des communes entre ADMINEXPRESS-COG:2024 et ADMINEXPRESS-COG.LATEST
-
-#### Explorer les données des tables
-
-* [gpf_wfs_get_features(typename,...)](src/tools/GpfWfsGetFeaturesTool.ts) pour **récupérer les données d'une table** ([GetFeature](https://data.geopf.fr/wfs/ows?service=WFS&version=2.0.0&request=GetFeature&typename=ADMINEXPRESS-COG.LATEST:commune&outputFormat=application/json&count=1))
-
-> - Quelles sont les 5 communes les plus peuplées du Doubs (25)?
-> - Combien y-a-t'il de bâtiments à moins de 5 km de la tour Eiffel?
+Le projet d'origine exposait un outil par service de la Géoplateforme (`geocode`, `altitude`, `adminexpress`, `cadastre`, `urbanisme`, `assiette_sup`, `gpf_wfs_list_types`, `gpf_wfs_search_types`, `gpf_wfs_describe_type`, `gpf_wfs_get_features`). Leur code est conservé dans [src/tools/](src/tools/) et la version publiée sur npm les expose ; **le serveur de cette version ne les expose plus**, la navigation et les sources du registre s'appuient sur les mêmes clients ([src/gpf/](src/gpf/)).
 
 ## Contribution
 
