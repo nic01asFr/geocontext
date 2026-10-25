@@ -49,7 +49,7 @@ export const THEMES_BY_LEVEL: Record<TerritoryLevel, Theme[]> = {
   region: ["identite", "risques", "environnement", "economie"],
   departement: ["identite", "risques", "environnement", "transport", "hydrologie", "economie"],
   epci: ["identite", "risques", "environnement", "transport", "hydrologie", "economie"],
-  commune: ["identite", "urbanisme", "cadastre", "risques", "environnement", "transport", "hydrologie", "economie", "bati"],
+  commune: ["identite", "urbanisme", "cadastre", "risques", "environnement", "transport", "hydrologie", "economie", "bati", "energie"],
   parcelle: ["identite", "urbanisme", "cadastre", "risques", "bati"],
   batiment: ["identite", "risques", "bati", "energie"],
 };

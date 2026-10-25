@@ -467,7 +467,7 @@ describe("executeSource — attribute_with_fallback", () => {
 // ==========================================================================
 
 describe("executeSource — spatial pivot", () => {
-  test("construit un filtre BBOX pour le pivot spatial", async () => {
+  test("pivot spatial BBOX : lecture exacte, refus explicite si le territoire n'a pas de contour surfacique", async () => {
     const source: SourceDef = {
       id: "spatial_source",
       label: "Spatial test",
@@ -486,17 +486,19 @@ describe("executeSource — spatial pivot", () => {
       priority: "required",
     };
 
+
+    // Seule réponse simulée : celle du contour du territoire (un point, donc non surfacique).
     mockFetch.mockResolvedValueOnce(
       wfsResponse([{ nom: "Zone A" }]),
     );
 
     const result = await executeSource(source, ctxLoray());
 
-    expect(result.success).toBe(true);
-    expect(result.features).toHaveLength(1);
-    // L'URL doit contenir un filtre spatial BBOX
-    const url = mockFetch.mock.calls[0][0] as string;
-    expect(url).toContain("BBOX");
+    // Les couches à pivot BBOX sont lues en mode exact (appartenance décidée sur le contour du territoire) :
+    // sans contour surfacique, la lecture est REFUSÉE avec un message explicite, jamais approchée par le rectangle.
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/non surfacique/);
+    expect(mockFetch).toHaveBeenCalledTimes(1); // le contour seul : aucune couche lue sans lui
   });
 
   test("retourne erreur quand la bbox manque", async () => {

@@ -10,7 +10,7 @@
  *   3. ⚠ La liaison DPE → parcelle est non fiable en direct
  *      → Toujours passer par la BDNB qui fait le matching via BAN
  *
- * Ce thème n'existe qu'au niveau bâtiment (THEMES_BY_LEVEL).
+ * Ce thème existe aux niveaux bâtiment (BDNB, ADEME) et commune (DPE ADEME de la commune) — voir THEMES_BY_LEVEL.
  *
  * @see docs/terrid-spec.md — contrainte DPE→parcelle non fiable
  */
