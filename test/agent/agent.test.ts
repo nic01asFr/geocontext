@@ -284,3 +284,17 @@ describe("fonctions pures", () => {
     expect(b).toMatch(/12 éléments retenus sur 20/);
   });
 });
+
+describe("consigne", () => {
+  test("règles issues des essais avec un vrai modèle : pas de code de mémoire, demande complète, hors périmètre, observé seulement", async () => {
+    sessions.set("p1", fausseSession());
+    reponses = [texte("ok")];
+    await chat("p1", "salut");
+    const consigne: string = requetesModele[0].messages[0].content;
+    expect(consigne).toMatch(/JAMAIS de code INSEE/);
+    expect(consigne).toMatch(/reprends la demande d'origine complète/);
+    expect(consigne).toMatch(/Fort-de-France/);
+    expect(consigne).toMatch(/Tu ne décris que ce que tu as observé/);
+    expect(consigne).toMatch(/Territoire exact/);
+  });
+});
