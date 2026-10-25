@@ -77,7 +77,7 @@ Core of the application. Each session maintains a `NavigationContext` (territory
 | `registry/` | Data registry mapping `(level, theme, action)` → sources with endpoints, fields, pivots, filters |
 | `executors/executor.ts` | Executes WFS/REST sources: CQL construction, fetch with retry, field transforms, layerSpecs |
 
-**Dynamic tools principle**: 3-7 tools exposed to the LLM depending on context. Descriptions, enums, and schemas change after each tool call. `tools/list_changed` notification triggers re-fetch.
+**Dynamic tools principle**: the 7 tools are always exposed (`getTools()`); their descriptions and enums depend on the context and are recomputed on each `tools/list`. `tools/list_changed` may be emitted, but clients do not always re-fetch within a conversation (see header of `session.ts`).
 
 **LayerSpecs pattern**: GeoJSON is NOT returned through MCP (too large). Instead, tool results include `layerSpec` objects (WFS URL, typename, CQL filter, style). The frontend fetches GeoJSON directly from Géoplateforme.
 

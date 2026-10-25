@@ -36,7 +36,7 @@ Le serveur est **à état** : chaque session conserve un `NavigationContext` (vo
 | Données et couches | résultats chargés, couches cartographiques actives | `session.ts` |
 | Historique | pile utilisée par l'outil `back` | `session.ts` |
 
-**Outils dynamiques** (voir [dynamic-tools.md](dynamic-tools.md)) : `navigate`, `search`, `action`, `map`, `compare`, `select`, `back`. Seuls ceux qui ont un sens dans le contexte courant sont listés (de 3 à 7) ; leurs descriptions et énumérations sont recalculées, et le serveur émet `tools/list_changed` lorsque la liste change.
+**Outils dynamiques** (voir [dynamic-tools.md](dynamic-tools.md)) : `navigate`, `search`, `action`, `map`, `compare`, `select`, `back`. Les sept sont **toujours** listés (`getTools()` dans `session.ts`) ; c'est leur contenu qui dépend du contexte : descriptions et énumérations (thèmes, sous-actions, couches actives) sont recalculées à chaque appel de `tools/list`, et le serveur peut émettre `tools/list_changed`. Les clients qui ne relisent pas la liste en cours de conversation voient donc un contenu d'énumérations qui peut être périmé.
 
 **Ressources** : `geocontext://context` (état résumé), `geocontext://themes/{niveau}`, `geocontext://actions/{thème}`, `geocontext://layers`.
 
