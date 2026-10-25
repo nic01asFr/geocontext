@@ -74,7 +74,7 @@ const ContextPanel = {
       const nom = entree.name || entree.code;
       if (niveau === ctx.level) {
         const s = document.createElement("span"); s.className = "fil-cur"; s.setAttribute("aria-current", "location"); s.title = etiquette[niveau] || niveau;
-        s.append(nom); const k = document.createElement("span"); k.className = "code"; k.textContent = entree.code; s.append(k); return s;
+        s.append(nom); if (entree.code !== nom) { const k = document.createElement("span"); k.className = "code"; k.textContent = entree.code; s.append(k); } return s;
       }
       const b = document.createElement("button"); b.type = "button"; b.className = "fil-lien"; b.textContent = nom; b.title = `${etiquette[niveau] || niveau} — aller à ${nom}`;
       b.onclick = () => aller(niveau, entree.code); return b;
