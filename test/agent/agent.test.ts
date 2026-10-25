@@ -296,5 +296,7 @@ describe("consigne", () => {
     expect(consigne).toMatch(/Fort-de-France/);
     expect(consigne).toMatch(/Tu ne décris que ce que tu as observé/);
     expect(consigne).toMatch(/Territoire exact/);
+    expect(consigne).toMatch(/INCLUSIVES/);
+    expect(consigne).toMatch(/sans valeur/);
   });
 });

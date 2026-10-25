@@ -332,11 +332,14 @@
         const action = String(ev.args?.action ?? "");
         const pre = { isError: false, content: [{ type: "text", text: ev.texte || "" }], ...(ev.layerSpecs ? { structuredContent: { layerSpecs: ev.layerSpecs } } : {}) };
         const b = await doAction(action, pre);
-        const parts = b.couches.map((c) => `${c.label} : ${n(c.n)} éléments affichés`);
+        const nv0 = DataPanel._verified;
+        const lu = nv0 && nv0.compte != null; // la carte a-t-elle été relue ?
+        const parts = b.couches.map((c) => lu ? `${c.label} : ${n(c.n)} éléments affichés` : `${c.label} : ${n(c.n)} éléments chargés dans le panneau et transmis à la carte`);
         if (b.echecs.length) parts.push("NON chargé(es) en entier : " + b.echecs.map((e) => `${e.label} (${e.erreur})`).join(" ; "));
         if (!parts.length) parts.push(b.erreur ? `échec : ${b.erreur}` : "aucune couche à afficher pour cette action");
         const nv = DataPanel._verified;
         if (nv && nv.compte != null) parts.push(`carte vérifiée ${n(nv.compte)} / ${n(nv.total)}`);
+        else if (b.couches.length) parts.push("carte NON relue à l'instant (vérification absente ou en attente) : ne pas affirmer que la couche est visible");
         return b.ok ? { ok: true, note: parts.join(" ; ") + "." } : { ok: false, erreur: parts.join(" ; ") };
       }
       // select / compare : le serveur a répondu, rien de plus n'est dessiné par la page
