@@ -15,3 +15,18 @@ describe("filtre spatial INTERSECTS avec la géométrie du contexte", () => {
     expect(r?.cql).toMatch(/^INTERSECTS\(geom, SRID=4326;POLYGON/);
   });
 });
+
+import { deriveStyleRecipe } from "../../src/session/styling/deterministic.js";
+import { registry } from "../../src/session/registry/registry.js";
+
+describe("type de géométrie annoncé d'après le jeu de données", () => {
+  it.each([
+    ["urba_prescriptions_lin", "line"],
+    ["urba_prescriptions_pct", "point"],
+    ["urba_prescriptions_surf", "polygon"],
+  ])("%s → %s", (id, attendu) => {
+    const src: any = registry.getSource(id);
+    expect(src).toBeTruthy();
+    expect(deriveStyleRecipe(src, []).geometryType).toBe(attendu);
+  });
+});

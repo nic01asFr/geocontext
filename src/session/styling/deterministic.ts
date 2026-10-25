@@ -195,6 +195,9 @@ function detectGeometryType(
 
   // Heuristique depuis le typename
   const tn = (source.typename || "").toLowerCase();
+  // Suffixes de géométrie du Géoportail de l'Urbanisme : _lin / _l = lignes, _pct / _p = points, _sup_s / _surf = surfaces
+  if (/_(lin|l)$/.test(tn)) return "line";
+  if (/_(pct|p)$/.test(tn)) return "point";
   if (tn.includes("zone") || tn.includes("parcelle") || tn.includes("section"))
     return "polygon";
   if (tn.includes("route") || tn.includes("troncon") || tn.includes("cours"))

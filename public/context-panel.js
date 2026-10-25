@@ -69,6 +69,8 @@ const ContextPanel = {
     const aller = (niveau, code) => GeoState.emit("navigate-request", NAV.includes(niveau) ? `${niveau}:${code}` : code);
     const etiquette = { region: "Région", departement: "Département", epci: "Intercommunalité (EPCI)", commune: "Commune", parcelle: "Parcelle", batiment: "Bâtiment" };
     const maillon = (niveau, entree) => {
+      // parcelle : { idpar } ; bâtiment : { id } — pas de « code » ni de « name » dans ces maillons
+      entree = { ...entree, code: entree.code ?? entree.idpar ?? entree.id };
       const nom = entree.name || entree.code;
       if (niveau === ctx.level) {
         const s = document.createElement("span"); s.className = "fil-cur"; s.setAttribute("aria-current", "location"); s.title = etiquette[niveau] || niveau;
