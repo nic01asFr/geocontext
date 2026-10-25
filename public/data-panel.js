@@ -749,7 +749,9 @@
       const r = await this._pushToMap([], {});
       if (r.ok === null) { this._verified = null; this._status(); return; }
       if (!r.ok || r.compte !== this._nCarte || r.total !== this._nCarte) {
-        this._alert(`<b>Carte et tableau ne concordent pas.</b> Tableau : ${this._n.toLocaleString("fr-FR")} éléments ; carte : ${r.ok ? `${Number(r.compte).toLocaleString("fr-FR")} sur ${Number(r.total).toLocaleString("fr-FR")}` : esc(r.erreur)}. Ne pas se fier à l'affichage ; recharger la couche.`);
+        this._alert(r.ok
+          ? `<b>Carte et tableau ne concordent pas.</b> Tableau : ${this._n.toLocaleString("fr-FR")} éléments ; carte : ${Number(r.compte).toLocaleString("fr-FR")} sur ${Number(r.total).toLocaleString("fr-FR")}. Ne pas se fier à l'affichage ; recharger la couche.`
+          : `<b>La carte n'a pas pu être relue : aucune vérification.</b> Tableau : ${this._n.toLocaleString("fr-FR")} éléments (le tableau, lui, est exact). Cause côté carte : ${esc(r.erreur)}. Ne pas se fier à l'affichage de la carte ; recharger la couche.`);
         this._verified = false;
       } else { this._verified = { compte: r.compte, total: r.total }; this._alert(""); this._sansPos(); }
       this._status();
