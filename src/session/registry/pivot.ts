@@ -152,7 +152,8 @@ export function buildSpatialCql(
     // Conversion GeoJSON geometry → WKT pour le filtre CQL INTERSECTS
     const wkt = geojsonToWkt(geometry);
     return {
-      cql: `INTERSECTS(${geomCol}, ${wkt})`,
+      // SRID explicite : sans lui, le service lit le WKT en ordre latitude/longitude et ne renvoie rien (vérifié sur wfs_du:zone_urba)
+      cql: `INTERSECTS(${geomCol}, SRID=4326;${wkt})`,
     };
   }
 

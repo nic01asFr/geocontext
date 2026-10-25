@@ -12,6 +12,6 @@ describe("filtre spatial INTERSECTS avec la géométrie du contexte", () => {
     const ctx = createEmptyContext();
     ctx.geometry = poly;
     const r = buildSpatialCql(ctx, pivot);
-    expect(r?.cql).toMatch(/^INTERSECTS\(geom, POLYGON/);
+    expect(r?.cql).toMatch(/^INTERSECTS\(geom, SRID=4326;POLYGON/);
   });
 });
