@@ -135,6 +135,7 @@ export function buildSpatialCql(
   targetCrs?: CRS,
 ): CqlFilterResult | null {
   const geomCol = pivot.geometryColumn ?? "the_geom";
+  geometry = geometry ?? ctx.geometry ?? null;
 
   if (pivot.spatialOp === "bbox") {
     if (!ctx.bbox) return null;

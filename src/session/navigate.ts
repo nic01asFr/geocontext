@@ -31,6 +31,8 @@ export interface NavigateSuccess {
   code: string;
   name: string;
   bbox: [number, number, number, number] | null;
+  /** Géométrie exacte (parcelle) pour les filtres INTERSECTS */
+  geometry?: GeoJSON.Geometry | null;
   hierarchy: Hierarchy;
   /** Information de résolution (ex. arrondissement rattaché à sa commune) */
   note?: string;
@@ -255,6 +257,7 @@ async function resolveParcelle(idpar: string): Promise<NavigateResult> {
     code: idpar,
     name: `Parcelle ${idpar}`,
     bbox: extractBbox(feature),
+    geometry: feature.geometry ?? null,
     hierarchy,
   };
 }

@@ -222,6 +222,7 @@ export class GeoContextSession {
     this.ctx.code = result.code;
     this.ctx.name = result.name;
     this.ctx.bbox = result.bbox;
+    this.ctx.geometry = result.geometry ?? null;
     this.ctx.hierarchy = result.hierarchy;
     this.ctx.theme = null;
     this.ctx.data = {};
@@ -984,6 +985,7 @@ export class GeoContextSession {
       code: this.ctx.code,
       name: this.ctx.name,
       bbox: this.ctx.bbox,
+      geometry: this.ctx.geometry ?? null,
       hierarchy: { ...this.ctx.hierarchy },
       theme: this.ctx.theme,
       data: { ...this.ctx.data },

@@ -105,6 +105,8 @@ export interface NavigationContext {
   code: string | null;
   name: string | null;
   bbox: [number, number, number, number] | null;
+  /** Géométrie exacte du territoire quand elle est connue (parcelle) : sert aux filtres INTERSECTS. */
+  geometry?: GeoJSON.Geometry | null;
 
   // Resolved hierarchy
   hierarchy: Hierarchy;

@@ -339,7 +339,7 @@
         const parts = b.couches.map((c) => lu ? `${c.label} : ${n(c.n)} éléments affichés` : `${c.label} : ${n(c.n)} éléments chargés dans le panneau et transmis à la carte`);
         if (b.echecs.length) parts.push("NON chargé(es) en entier : " + b.echecs.map((e) => `${e.label} (${e.erreur})`).join(" ; "));
         if (!parts.length) parts.push(b.erreur ? `échec : ${b.erreur}` : "aucune couche à afficher pour cette action");
-        const nv = DataPanel._verified;
+        const nv = b.couches.length ? DataPanel._verified : null; // sans couche chargée par cette action, une vérification restée d'une autre couche ne dit rien
         if (nv && nv.compte != null) parts.push(`carte vérifiée ${n(nv.compte)} / ${n(nv.total)}`);
         else if (b.couches.length) parts.push("carte NON relue à l'instant (vérification absente ou en attente) : ne pas affirmer que la couche est visible");
         return b.ok ? { ok: true, note: parts.join(" ; ") + "." } : { ok: false, erreur: parts.join(" ; ") };
