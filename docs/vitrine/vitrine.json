@@ -2,12 +2,16 @@
   "nom": "geocontext",
   "pitch": "geocontext donne à un assistant, ou à une personne devant une carte, le même contexte territorial : où l'on est, quelles données existent là, lesquelles sont chargées. Les données sont lues à la demande chez leur producteur, principalement sur la Géoplateforme, et ce qui est affiché est relu avant d'être affirmé.",
   "couleur": "#12607C",
-  "tags": ["MCP", "Géoplateforme", "Territoire", "Agent", "Carte"],
+  "tags": [
+    "MCP",
+    "Géoplateforme",
+    "Territoire",
+    "Agent",
+    "Carte"
+  ],
   "depot": "https://github.com/nic01asFr/geocontext/tree/fix/agent-harnais-2026-10-25",
   "liensDocs": "https://github.com/nic01asFr/geocontext/blob/fix/agent-harnais-2026-10-25/docs/",
-
   "constat": "Interrogé sur un lieu, un assistant produit volontiers une réponse plausible mais fausse : un zonage approximatif, un nombre de bâtiments inventé, une limite communale mal placée.\n\nBrancher directement des API géographiques ne suffit pas : leurs réponses sont volumineuses (géométries, milliers d'objets) et mal adaptées à un modèle de langage. Et une réponse du type « c'est affiché sur la carte » n'est vraie que si quelqu'un l'a vérifié.",
-
   "points": [
     {
       "titre": "Le contexte est l'interface",
@@ -34,7 +38,6 @@
       "texte": "Une valeur absente est dite absente, un objet sans position fiable est signalé, une source injoignable donne une erreur et non un résultat vide."
     }
   ],
-
   "usages": [
     {
       "titre": "Lire un territoire",
@@ -49,29 +52,37 @@
       "texte": "un client MCP ou l'agent intégré utilisent les mêmes outils que la page et agissent sur la même session : ce qu'ils font se voit à l'écran."
     }
   ],
-
   "statut": {
     "niveau": "Prototype",
     "texte": "Utilisable sur une instance de test. Pas d'authentification, pas de reprise de service : voir « À savoir avant d'adopter »."
   },
-
   "journal": [
     {
       "version": "25 octobre 2026",
       "texte": "Navigation par parcelle avec géométrie exacte (zonage et bâtiments par intersection), accusé d'affichage de l'agent, refus explicite de la navigation vers un bâtiment, documentation et vitrine."
     }
   ],
-
   "produit": {
     "eyebrow": "Serveur MCP · Interface web · MCP App · Agent intégré",
-    "accroche": "Un contexte, quatre façons d'y accéder.",
+    "accroche": "Un contexte commun, deux modes d'usage, quatre accès.",
     "chiffres": [
-      { "valeur": "7", "libelle": "outils MCP, toujours listés" },
-      { "valeur": "49", "libelle": "sources déclarées, 10 thèmes" },
-      { "valeur": "8", "libelle": "services interrogés à la demande" },
-      { "valeur": "4", "libelle": "accès au même contexte" }
+      {
+        "valeur": "7",
+        "libelle": "outils MCP, toujours listés"
+      },
+      {
+        "valeur": "49",
+        "libelle": "sources déclarées, 10 thèmes"
+      },
+      {
+        "valeur": "8",
+        "libelle": "services interrogés à la demande"
+      },
+      {
+        "valeur": "4",
+        "libelle": "accès au même contexte"
+      }
     ],
-
     "titreContextes": "Ce que ça donne",
     "introContextes": "Captures de l'interface web sur la commune de Cassis (13022) et l'une de ses parcelles, avec les données réelles de la Géoplateforme au moment de la capture (octobre 2026). Les nombres cités sont ceux de ces captures.",
     "contextes": [
@@ -79,80 +90,193 @@
         "titre": "Une commune et ses thèmes",
         "texte": "Le fil territorial (région › département › EPCI › commune) donne la position ; le panneau de gauche liste les thèmes disponibles pour ce niveau, avec le nombre de couches. Le contour de la commune provient d'ADMIN EXPRESS.",
         "pourquoi": "Ce que l'on propose ensuite dépend de cette position, pour la personne comme pour le modèle.",
-        "images": [{ "src": "img/commune.webp", "alt": "Interface geocontext sur la commune de Cassis : liste des thèmes à gauche, fil territorial en haut, carte avec le contour de la commune." }]
+        "images": [
+          {
+            "src": "img/commune.webp",
+            "alt": "Interface geocontext sur la commune de Cassis : liste des thèmes à gauche, fil territorial en haut, carte avec le contour de la commune."
+          }
+        ]
       },
       {
         "titre": "Appartenance exacte au territoire",
         "texte": "88 zonages sont retenus. Cinq objets que le rectangle englobant de la commune ramenait, mais qui n'ont aucun point commun avec son contour exact, sont écartés et listés. Vingt objets chevauchent la limite : ils sont conservés et marqués dans la colonne « Position ».",
         "pourquoi": "Le rectangle ne sert qu'à présélectionner ; un total approché serait faux sans que rien ne le signale.",
-        "images": [{ "src": "img/zonages-ecartes.webp", "alt": "Zonages du PLU de Cassis colorés sur la carte ; panneau de données : 88 éléments, 5 objets écartés, 20 objets à cheval sur la limite communale." }]
+        "images": [
+          {
+            "src": "img/zonages-ecartes.webp",
+            "alt": "Zonages du PLU de Cassis colorés sur la carte ; panneau de données : 88 éléments, 5 objets écartés, 20 objets à cheval sur la limite communale."
+          }
+        ]
       },
       {
         "titre": "Filtrer, et vérifier",
         "texte": "Filtre « type de zone = U » : 39 sur 88. Après chaque filtre, la page compare le nombre d'objets lus sur la carte à celui du tableau ; en cas d'écart, l'opération est annulée avec un message. Ici, les deux concordent.",
         "pourquoi": "Un tableau et une carte qui ne disent pas la même chose sont une erreur, pas un détail d'affichage.",
-        "images": [{ "src": "img/filtre-tableau-carte.webp", "alt": "Même couche filtrée sur le type de zone U : 39 éléments sur 88, seules les zones U restent colorées sur la carte." }]
+        "images": [
+          {
+            "src": "img/filtre-tableau-carte.webp",
+            "alt": "Même couche filtrée sur le type de zone U : 39 éléments sur 88, seules les zones U restent colorées sur la carte."
+          }
+        ]
       },
       {
         "titre": "Au niveau parcelle",
         "texte": "La géométrie exacte de la parcelle 13022000CE0185 sert de filtre d'intersection : quatre bâtiments BD TOPO, dont trois à usage résidentiel et un commercial. La mention « carte vérifiée 4 / 4 » indique que la carte a été relue.",
         "pourquoi": "Zonages et bâtiments de la parcelle ont été comparés à un calcul indépendant sur quatre parcelles de cette commune.",
-        "images": [{ "src": "img/parcelle-batiments.webp", "alt": "Parcelle 13022000CE0185 : quatre bâtiments BD TOPO en surbrillance sur la carte ; panneau de données avec usage, hauteur, logements, étages, et la mention carte vérifiée 4 sur 4." }]
+        "images": [
+          {
+            "src": "img/parcelle-batiments.webp",
+            "alt": "Parcelle 13022000CE0185 : quatre bâtiments BD TOPO en surbrillance sur la carte ; panneau de données avec usage, hauteur, logements, étages, et la mention carte vérifiée 4 sur 4."
+          }
+        ]
       },
       {
         "titre": "Des représentations pour les points",
         "texte": "2 385 diagnostics énergétiques (ADEME) agrégés en hexagones de 150 m. La couche signale un diagnostic sans position fiable, masqué par défaut. Cercles proportionnels, chaleur, hexagones et grille ne sont proposés que pour des points ; lignes et surfaces se colorent par champ numérique ou catégoriel.",
         "pourquoi": "Une représentation n'est proposée que si elle a un sens pour la donnée.",
-        "images": [{ "src": "img/points-hexagones.webp", "alt": "2 385 diagnostics de performance énergétique de Cassis agrégés en hexagones de 150 mètres sur la carte ; statistiques par étiquette DPE et GES." }]
+        "images": [
+          {
+            "src": "img/points-hexagones.webp",
+            "alt": "2 385 diagnostics de performance énergétique de Cassis agrégés en hexagones de 150 mètres sur la carte ; statistiques par étiquette DPE et GES."
+          }
+        ]
       },
       {
         "titre": "L'agent intégré",
         "texte": "À la question « Combien de bâtiments sur la parcelle 13022000CE0185, et quels sont leurs usages ? », l'agent enchaîne les mêmes outils qu'un client MCP : navigation, chargement, filtre. Un premier filtre a été refusé par la page ; l'agent a repris avec le bon champ, et l'étape en échec reste visible. La réponse (3 résidentiels, 1 commercial) correspond au tableau affiché.",
         "pourquoi": "L'agent n'a pas de canal privilégié : ce qu'il affirme avoir affiché a été relu par la page.",
-        "images": [{ "src": "img/agent.webp", "alt": "Panneau d'agent à droite : étapes exécutées (chargement des bâtiments, filtre refusé puis filtre par usage), réponse : 4 bâtiments dont 3 résidentiels et 1 commercial." }]
+        "images": [
+          {
+            "src": "img/agent.webp",
+            "alt": "Panneau d'agent à droite : étapes exécutées (chargement des bâtiments, filtre refusé puis filtre par usage), réponse : 4 bâtiments dont 3 résidentiels et 1 commercial."
+          }
+        ]
       }
     ],
-
     "titreSequence": "Le cycle de navigation",
     "sequence": [
-      { "titre": "Naviguer", "texte": "Un nom, un code INSEE, des coordonnées, un identifiant de parcelle : le contexte prend le territoire, son emprise et, pour une parcelle, sa géométrie exacte." },
-      { "titre": "Choisir un thème", "texte": "Urbanisme, cadastre, risques, bâti, énergie… selon le niveau courant." },
-      { "titre": "Charger une donnée", "texte": "Le registre trouve les sources, construit la requête, renvoie comptes et description de couche." },
-      { "titre": "Filtrer, comparer", "texte": "Les opérations d'affichage sont relues sur la carte avant d'être confirmées." },
-      { "titre": "Revenir", "texte": "Une pile de 20 états permet de revenir en arrière." }
+      {
+        "titre": "Naviguer",
+        "texte": "Un nom, un code INSEE, des coordonnées, un identifiant de parcelle : le contexte prend le territoire, son emprise et, pour une parcelle, sa géométrie exacte."
+      },
+      {
+        "titre": "Choisir un thème",
+        "texte": "Urbanisme, cadastre, risques, bâti, énergie… selon le niveau courant."
+      },
+      {
+        "titre": "Charger une donnée",
+        "texte": "Le registre trouve les sources, construit la requête, renvoie comptes et description de couche."
+      },
+      {
+        "titre": "Filtrer, comparer",
+        "texte": "Les opérations d'affichage sont relues sur la carte avant d'être confirmées."
+      },
+      {
+        "titre": "Revenir",
+        "texte": "Une pile de 20 états permet de revenir en arrière."
+      }
     ],
-
     "architecture": {
-      "titre": "Un contexte, quatre accès",
-      "intro": "Le serveur maintient, pour chaque connexion, un contexte de navigation : le territoire, le thème, les données et les couches chargées. Tous les clients lisent et modifient ce même contexte.",
+      "titre": "Un contexte commun, deux modes d'usage",
+      "intro": "Le serveur maintient, pour chaque connexion, un contexte de navigation : le territoire, le thème, les données et les couches chargées. Chaque mode a un acteur (le modèle, qui appelle les outils) et une surface (ce qui affiche). Tous lisent et modifient ce même contexte.",
       "schema": "schema-architecture.svg",
       "cartes": [
-        { "titre": "Client MCP", "texte": "Claude Desktop, Cursor ou l'Inspector se connectent en stdio ou en HTTP et reçoivent sept outils dont les valeurs autorisées dépendent du contexte." },
-        { "titre": "Interface web", "texte": "Carte, tableaux, filtres, représentations et export. Elle parle au serveur comme un client MCP et fonctionne sans modèle de langage." },
-        { "titre": "MCP App", "texte": "Une carte embarquable (ui://geocontext-map) déclarée par les outils, que les clients compatibles peuvent afficher dans la conversation. Elle n'a pas été testée dans un client réel." },
-        { "titre": "Agent intégré", "texte": "Une boucle côté serveur, avec un modèle au choix de l'exploitant (API de type « chat completions »). Mêmes outils, même session que la page." }
+        {
+          "titre": "Client MCP (acteur, mode client MCP)",
+          "texte": "Claude Desktop, Cursor ou l'Inspector se connectent en stdio ou en HTTP et reçoivent sept outils dont les valeurs autorisées dépendent du contexte. Le modèle est celui du client."
+        },
+        {
+          "titre": "MCP App (surface, mode client MCP)",
+          "texte": "Une carte embarquable (ui://geocontext-map) déclarée par les outils, que les clients compatibles peuvent afficher dans la conversation. Elle ne passe pas par le protocole d'accusé d'affichage et n'a pas été testée dans un client réel."
+        },
+        {
+          "titre": "Agent intégré (acteur, mode site web)",
+          "texte": "Une boucle côté serveur, avec un modèle au choix de l'exploitant (API de type « chat completions »). Mêmes outils, même session que la page."
+        },
+        {
+          "titre": "Interface web (surface, mode site web)",
+          "texte": "Carte, tableaux, filtres, représentations et export. Elle parle au serveur comme un client MCP, relit ce qu'elle affiche et l'accuse. Son chat accepte aussi des commandes directes, sans modèle."
+        }
       ]
     },
-
     "technique": {
       "titre": "Pour les équipes techniques",
       "intro": "Ce qui peut intéresser une équipe qui voudrait reprendre ou adapter une partie de l'approche.",
       "lignes": [
-        { "sujet": "Session MCP à état", "fait": "Un contexte de navigation par connexion : niveau, code, emprise, géométrie exacte (parcelle), thème, couches, historique de 20 entrées.", "ou": { "libelle": "src/session/" } },
-        { "sujet": "Surface d'outils", "fait": "Sept outils toujours listés ; descriptions et enum contextuels ; ressources geocontext://… ; prompt geocontext-guide.", "ou": { "libelle": "dynamic-tools.md", "doc": "dynamic-tools.md" } },
-        { "sujet": "Registre de sources", "fait": "49 sources déclaratives (niveau, thème, action, point d'accès, champs, filtres, stratégie de pivot : attribut, spatial, repli, composite). Ajouter une donnée = déclarer une source.", "ou": { "libelle": "src/session/registry/" } },
-        { "sujet": "Exécution", "fait": "Construction CQL / REST, reprises, tri, transformations de champs, description de couche pour l'affichage côté client.", "ou": { "libelle": "src/session/executors/" } },
-        { "sujet": "Territoire exact", "fait": "Décision dedans / à cheval / hors par objet (jsts pour les cas ambigus), lecture complète contrôlée, refus au-delà du volume.", "ou": { "libelle": "territoire-exact.md", "doc": "territoire-exact.md" } },
-        { "sujet": "Accusé d'affichage", "fait": "Outils non annoncés ui_poll, ui_ack, ui_state : la surface applique, relit, accuse et publie son état.", "ou": { "libelle": "guide-technique.md §8", "doc": "guide-technique.md" } },
-        { "sujet": "Agent intégré", "fait": "Boucle côté serveur sur les mêmes outils et la même session ; contexte relu à chaque étape ; résultats d'outils traités comme des données ; bornes de durée, d'étapes et de jetons.", "ou": { "libelle": "api-http-agent.md", "doc": "api-http-agent.md" } },
-        { "sujet": "Interface web", "fait": "JavaScript natif sans compilation ; carte par le composant <atlas-bi> (contrat « carte BI 0.3 ») ; comparaison tableau / carte après chaque opération.", "ou": { "libelle": "web-interface.md", "doc": "web-interface.md" } },
-        { "sujet": "Transports", "fait": "stdio (une session) ou HTTP (une session par connexion, interface web, /tiles, /liens, /agent).", "ou": { "libelle": "api-http-agent.md", "doc": "api-http-agent.md" } }
+        {
+          "sujet": "Session MCP à état",
+          "fait": "Un contexte de navigation par connexion : niveau, code, emprise, géométrie exacte (parcelle), thème, couches, historique de 20 entrées.",
+          "ou": {
+            "libelle": "src/session/"
+          }
+        },
+        {
+          "sujet": "Surface d'outils",
+          "fait": "Sept outils toujours listés ; descriptions et enum contextuels ; ressources geocontext://… ; prompt geocontext-guide.",
+          "ou": {
+            "libelle": "dynamic-tools.md",
+            "doc": "dynamic-tools.md"
+          }
+        },
+        {
+          "sujet": "Registre de sources",
+          "fait": "49 sources déclaratives (niveau, thème, action, point d'accès, champs, filtres, stratégie de pivot : attribut, spatial, repli, composite). Ajouter une donnée = déclarer une source.",
+          "ou": {
+            "libelle": "src/session/registry/"
+          }
+        },
+        {
+          "sujet": "Exécution",
+          "fait": "Construction CQL / REST, reprises, tri, transformations de champs, description de couche pour l'affichage côté client.",
+          "ou": {
+            "libelle": "src/session/executors/"
+          }
+        },
+        {
+          "sujet": "Territoire exact",
+          "fait": "Décision dedans / à cheval / hors par objet (jsts pour les cas ambigus), lecture complète contrôlée, refus au-delà du volume.",
+          "ou": {
+            "libelle": "territoire-exact.md",
+            "doc": "territoire-exact.md"
+          }
+        },
+        {
+          "sujet": "Accusé d'affichage",
+          "fait": "Outils non annoncés ui_poll, ui_ack, ui_state : la surface applique, relit, accuse et publie son état.",
+          "ou": {
+            "libelle": "guide-technique.md §8",
+            "doc": "guide-technique.md"
+          }
+        },
+        {
+          "sujet": "Agent intégré",
+          "fait": "Boucle côté serveur sur les mêmes outils et la même session ; contexte relu à chaque étape ; résultats d'outils traités comme des données ; bornes de durée, d'étapes et de jetons.",
+          "ou": {
+            "libelle": "api-http-agent.md",
+            "doc": "api-http-agent.md"
+          }
+        },
+        {
+          "sujet": "Interface web",
+          "fait": "JavaScript natif sans compilation ; carte par le composant <atlas-bi> (contrat « carte BI 0.3 ») ; comparaison tableau / carte après chaque opération.",
+          "ou": {
+            "libelle": "web-interface.md",
+            "doc": "web-interface.md"
+          }
+        },
+        {
+          "sujet": "Transports",
+          "fait": "stdio (une session) ou HTTP (une session par connexion, interface web, /tiles, /liens, /agent).",
+          "ou": {
+            "libelle": "api-http-agent.md",
+            "doc": "api-http-agent.md"
+          }
+        }
       ],
       "essayerTitre": "Essayer",
       "essayer": "# Client MCP (stdio), après construction locale\n{ \"mcpServers\": { \"geocontext\": { \"command\": \"node\", \"args\": [\"/chemin/vers/geocontext/dist/index.js\"] } } }\n\n# Interface web\nnpm install && npm run build\nTRANSPORT_TYPE=http npm start      # → http://localhost:3000\n\n# Agent intégré (facultatif)\nAGENT_LLM_BASE_URL=… AGENT_LLM_MODEL=… AGENT_LLM_API_KEY=…",
       "essayerNote": "Les captures de cette page se reproduisent avec scripts/capture-vitrine.mjs ; la page elle-même se régénère avec scripts/generate-vitrine.mjs."
     },
-
     "savoir": {
       "titre": "À savoir avant d'adopter",
       "intro": "C'est un prototype. Voici ce qui est vérifié, ce qui ne l'est pas, et ce qu'il faudrait avant un usage plus large.",
@@ -173,7 +297,7 @@
             "Niveau bâtiment : non navigable (refus explicite).",
             "DVF : comptage seul ; SIRENE : injoignable depuis l'environnement de test ; certaines sources parcelle : erreur explicite.",
             "Somme des cellules hexagonales : non relisible via la carte.",
-            "MCP App : non testée dans un client réel."
+            "MCP App : non testée dans un client réel, et sans accusé d'affichage (elle n'appelle pas ui_poll / ui_ack)."
           ]
         },
         {
@@ -193,20 +317,88 @@
         }
       ]
     },
-
     "docs": [
-      { "libelle": "Guide technique", "doc": "guide-technique.md" },
-      { "libelle": "Architecture", "doc": "architecture.md" },
-      { "libelle": "Structures du dépôt", "doc": "structures.md" },
-      { "libelle": "Navigation et contexte", "doc": "navigation-context.md" },
-      { "libelle": "Modèle de données", "doc": "data-model.md" },
-      { "libelle": "Outils", "doc": "dynamic-tools.md" },
-      { "libelle": "Interface web", "doc": "web-interface.md" },
-      { "libelle": "Routes HTTP et agent", "doc": "api-http-agent.md" },
-      { "libelle": "Territoire exact", "doc": "territoire-exact.md" },
-      { "libelle": "Usages et limites", "doc": "usages-professionnels.md" }
+      {
+        "libelle": "Guide technique",
+        "doc": "guide-technique.md"
+      },
+      {
+        "libelle": "Architecture",
+        "doc": "architecture.md"
+      },
+      {
+        "libelle": "Structures du dépôt",
+        "doc": "structures.md"
+      },
+      {
+        "libelle": "Navigation et contexte",
+        "doc": "navigation-context.md"
+      },
+      {
+        "libelle": "Modèle de données",
+        "doc": "data-model.md"
+      },
+      {
+        "libelle": "Outils",
+        "doc": "dynamic-tools.md"
+      },
+      {
+        "libelle": "Interface web",
+        "doc": "web-interface.md"
+      },
+      {
+        "libelle": "Routes HTTP et agent",
+        "doc": "api-http-agent.md"
+      },
+      {
+        "libelle": "Territoire exact",
+        "doc": "territoire-exact.md"
+      },
+      {
+        "libelle": "Usages et limites",
+        "doc": "usages-professionnels.md"
+      }
     ],
-
-    "pied": "geocontext — prototype issu du projet mborne/geocontext (incubation ignfab). Données : Géoplateforme (IGN), Géoportail de l'urbanisme, Géorisques, RNB, ADEME, entre autres, lues à la demande. Fonds de carte © IGN – Géoplateforme. Licence MIT."
+    "pied": "geocontext — prototype issu du projet mborne/geocontext (incubation ignfab). Données : Géoplateforme (IGN), Géoportail de l'urbanisme, Géorisques, RNB, ADEME, entre autres, lues à la demande. Fonds de carte © IGN – Géoplateforme. Licence MIT.",
+    "exploitation": {
+      "titre": "Deux modes, deux conditions d'exploitation",
+      "intro": "Ce qui sépare les deux modes n'est pas le transport mais qui fournit l'interface et le modèle. Un client MCP peut aussi passer par HTTP : l'exposition réseau vaut alors pour lui aussi.",
+      "colonnes": [
+        "Mode client MCP",
+        "Mode site web"
+      ],
+      "lignes": [
+        {
+          "critere": "Qui l'utilise",
+          "a": "Une personne avec son propre client (Claude Desktop, Cursor).",
+          "b": "Des utilisateurs qui ouvrent une page."
+        },
+        {
+          "critere": "Modèle de langage",
+          "a": "Celui du client ; le serveur n'en fournit aucun.",
+          "b": "Celui de l'exploitant, configuré par variables AGENT_* pour l'agent intégré."
+        },
+        {
+          "critere": "Qui supporte le coût du modèle",
+          "a": "L'utilisateur.",
+          "b": "L'exploitant, avec des bornes de jetons par heure."
+        },
+        {
+          "critere": "Serveur",
+          "a": "stdio sur le poste (une session), ou HTTP.",
+          "b": "HTTP, exposé aux navigateurs."
+        },
+        {
+          "critere": "Authentification et réseau",
+          "a": "Celles du client ; rien à exposer en stdio. En HTTP, mêmes réserves que le site web.",
+          "b": "Aucune authentification aujourd'hui ; CORS ouvert sur /mcp. À protéger avant toute exposition."
+        },
+        {
+          "critere": "Ce que le serveur ajoute",
+          "a": "Outils, ressources, prompt.",
+          "b": "Interface, /agent, /tiles, /liens, accusé d'affichage."
+        }
+      ]
+    }
   }
 }

@@ -16,7 +16,7 @@ const fiche = JSON.parse(fs.readFileSync(path.join(dossier, "vitrine.json"), "ut
 
 const HAUT = ["nom", "pitch", "couleur", "tags", "depot", "liensDocs", "constat", "points", "usages", "statut", "journal", "produit"];
 const PRODUIT = ["eyebrow", "accroche", "chiffres", "titreContextes", "introContextes", "contextes", "titreSequence", "sequence",
-  "architecture", "technique", "savoir", "docs", "pied"];
+  "architecture", "exploitation", "technique", "savoir", "docs", "pied"];
 const erreurs = [];
 const inconnus = (obj, permis, ou) => { for (const k of Object.keys(obj)) if (!permis.includes(k)) erreurs.push(`champ inconnu : ${ou}.${k}`); };
 inconnus(fiche, HAUT, "fiche");
@@ -116,6 +116,15 @@ const savoir = !p.savoir ? "" : `<section id="limites"><div class="wrap">
   <div class="grid2" style="margin-top:18px">${p.savoir.blocs.map((b) => `<div class="card"><h3>${e(b.titre)}</h3><ul class="plain">${b.items.map((i) => `<li>${e(i)}</li>`).join("")}</ul></div>`).join("")}</div>
 </div></section>`;
 
+const exploitation = !p.exploitation ? "" : `<section id="exploitation"><div class="wrap">
+  <h2>${e(p.exploitation.titre)}</h2>
+  <p class="intro">${e(p.exploitation.intro)}</p>
+  <div class="scroll"><table>
+    <thead><tr><th></th>${p.exploitation.colonnes.map((c) => `<th>${e(c)}</th>`).join("")}</tr></thead>
+    <tbody>${p.exploitation.lignes.map((l) => `<tr><td><strong>${e(l.critere)}</strong></td><td>${e(l.a)}</td><td>${e(l.b)}</td></tr>`).join("")}</tbody>
+  </table></div>
+</div></section>`;
+
 const journal = !(fiche.journal ?? []).length ? "" : `<section id="journal"><div class="wrap">
   <h2>Journal</h2>
   <ul class="plain">${fiche.journal.map((j) => `<li><strong>${e(j.version)}</strong> : ${e(j.texte)}</li>`).join("")}</ul>
@@ -126,7 +135,7 @@ const docs = !(p.docs ?? []).length ? "" : `<section id="docs"><div class="wrap"
   <ul class="plain">${p.docs.map((d) => `<li><a href="${e(lienDoc(d.doc))}">${e(d.libelle)}</a></li>`).join("")}</ul>
 </div></section>`;
 
-const nav = [["#contextes", "Captures"], ["#sequence", "Cycle"], ["#surfaces", "Quatre accès"], ["#technique", "Technique"], ["#limites", "Limites"]]
+const nav = [["#contextes", "Captures"], ["#sequence", "Cycle"], ["#surfaces", "Deux modes"], ["#technique", "Technique"], ["#limites", "Limites"]]
   .map(([h, l]) => `<a href="${h}">${l}</a>`).join("\n      ");
 
 const css = `
@@ -175,7 +184,7 @@ const css = `
   .scroll { overflow-x:auto; }
   svg.diag { width:100%; height:auto; max-width:900px; display:block; margin:0 auto; }
   svg.diag text { font:13px system-ui,sans-serif; fill:var(--ink); } svg.diag .t2 { fill:var(--muted); font-size:11.5px; }
-  svg.diag .box { fill:var(--bg); stroke:var(--line); stroke-width:1.2; } svg.diag .core { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.4; } svg.diag .arrow { stroke:var(--muted); stroke-width:1.3; fill:none; }
+  svg.diag .col { fill:none; stroke:var(--line); stroke-width:1.2; stroke-dasharray:5 4; } svg.diag .box { fill:var(--bg); stroke:var(--line); stroke-width:1.2; } svg.diag .core { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.4; } svg.diag .arrow { stroke:var(--muted); stroke-width:1.3; fill:none; }
   ul.plain { padding-left:1.2em; margin:8px 0; } ul.plain li { margin:4px 0; }
   footer { border-top:1px solid var(--line); padding:28px 0 48px; color:var(--muted); font-size:.9rem; background:var(--bg2); }
   .skip { position:absolute; left:-999px; } .skip:focus { left:8px; top:8px; background:var(--bg); padding:6px 10px; z-index:9; }`;
@@ -200,7 +209,7 @@ const html = `<!doctype html>
   </nav>
 </div></header>
 <main id="contenu">
-${[hero, chiffres, constat, contextes, sequence, points, architecture, technique, usages, savoir, journal, docs].filter(Boolean).join("\n\n")}
+${[hero, chiffres, constat, contextes, sequence, points, architecture, exploitation, technique, usages, savoir, journal, docs].filter(Boolean).join("\n\n")}
 </main>
 <footer><div class="wrap"><p>${e(p.pied ?? "")}</p></div></footer>
 </body>

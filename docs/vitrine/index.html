@@ -52,7 +52,7 @@
   .scroll { overflow-x:auto; }
   svg.diag { width:100%; height:auto; max-width:900px; display:block; margin:0 auto; }
   svg.diag text { font:13px system-ui,sans-serif; fill:var(--ink); } svg.diag .t2 { fill:var(--muted); font-size:11.5px; }
-  svg.diag .box { fill:var(--bg); stroke:var(--line); stroke-width:1.2; } svg.diag .core { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.4; } svg.diag .arrow { stroke:var(--muted); stroke-width:1.3; fill:none; }
+  svg.diag .col { fill:none; stroke:var(--line); stroke-width:1.2; stroke-dasharray:5 4; } svg.diag .box { fill:var(--bg); stroke:var(--line); stroke-width:1.2; } svg.diag .core { fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.4; } svg.diag .arrow { stroke:var(--muted); stroke-width:1.3; fill:none; }
   ul.plain { padding-left:1.2em; margin:8px 0; } ul.plain li { margin:4px 0; }
   footer { border-top:1px solid var(--line); padding:28px 0 48px; color:var(--muted); font-size:.9rem; background:var(--bg2); }
   .skip { position:absolute; left:-999px; } .skip:focus { left:8px; top:8px; background:var(--bg); padding:6px 10px; z-index:9; }
@@ -65,7 +65,7 @@
   <nav aria-label="Sections">
       <a href="#contextes">Captures</a>
       <a href="#sequence">Cycle</a>
-      <a href="#surfaces">Quatre accès</a>
+      <a href="#surfaces">Deux modes</a>
       <a href="#technique">Technique</a>
       <a href="#limites">Limites</a>
   </nav>
@@ -80,7 +80,7 @@
 </div>
 
 <section class="chiffres"><div class="wrap">
-  <p class="accroche">Un contexte, quatre façons d'y accéder.</p>
+  <p class="accroche">Un contexte commun, deux modes d'usage, quatre accès.</p>
   <ul><li><strong>7</strong><span>outils MCP, toujours listés</span></li><li><strong>49</strong><span>sources déclarées, 10 thèmes</span></li><li><strong>8</strong><span>services interrogés à la demande</span></li><li><strong>4</strong><span>accès au même contexte</span></li></ul>
 </div></section>
 
@@ -130,33 +130,73 @@
 </div></section>
 
 <section id="surfaces"><div class="wrap">
-  <h2>Un contexte, quatre accès</h2>
-  <p class="intro">Le serveur maintient, pour chaque connexion, un contexte de navigation : le territoire, le thème, les données et les couches chargées. Tous les clients lisent et modifient ce même contexte.</p>
-  <svg class="diag" viewBox="0 0 900 400" role="img" aria-labelledby="d1t d1d">
-      <title id="d1t">Une session, quatre accès</title>
-      <desc id="d1d">Quatre accès (client MCP, interface web, MCP App, agent intégré) agissent sur une même session du serveur geocontext, qui s'appuie sur un registre de sources et les services de la Géoplateforme.</desc>
-      <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
-      <rect class="box" x="20" y="20" width="200" height="64" rx="8"/><text x="120" y="48" text-anchor="middle">Client MCP</text><text class="t2" x="120" y="66" text-anchor="middle">Claude Desktop, Cursor…</text>
-      <rect class="box" x="245" y="20" width="200" height="64" rx="8"/><text x="345" y="48" text-anchor="middle">Interface web</text><text class="t2" x="345" y="66" text-anchor="middle">carte, tableaux, filtres</text>
-      <rect class="box" x="470" y="20" width="200" height="64" rx="8"/><text x="570" y="48" text-anchor="middle">MCP App</text><text class="t2" x="570" y="66" text-anchor="middle">carte dans le client MCP</text>
-      <rect class="box" x="695" y="20" width="185" height="64" rx="8"/><text x="787" y="48" text-anchor="middle">Agent intégré</text><text class="t2" x="787" y="66" text-anchor="middle">boucle côté serveur</text>
-      <path class="arrow" d="M120 84 L120 128 L400 128 L400 150" marker-end="url(#ar)"/>
-      <path class="arrow" d="M345 84 L345 150" marker-end="url(#ar)"/>
-      <path class="arrow" d="M570 84 L570 128 L470 128 L470 150" marker-end="url(#ar)"/>
-      <path class="arrow" d="M787 84 L787 128 L520 128 L520 150" marker-end="url(#ar)"/>
-      <rect class="core" x="150" y="150" width="600" height="96" rx="10"/>
-      <text x="450" y="178" text-anchor="middle" style="font-weight:600">Serveur MCP · une session par connexion</text>
-      <text class="t2" x="450" y="200" text-anchor="middle">contexte de navigation : niveau, code, emprise, thème, données, couches, historique</text>
-      <text class="t2" x="450" y="220" text-anchor="middle">sept outils · ressources · prompt de guidage · protocole d'accusé de l'affichage</text>
-      <path class="arrow" d="M450 246 L450 280" marker-end="url(#ar)"/>
-      <rect class="box" x="150" y="280" width="600" height="56" rx="8"/>
-      <text x="450" y="303" text-anchor="middle">Registre déclaratif de sources (49) et exécuteurs WFS / REST</text>
-      <text class="t2" x="450" y="322" text-anchor="middle">mode « territoire exact » · nouvelles tentatives · transformations de champs</text>
-      <path class="arrow" d="M450 336 L450 366" marker-end="url(#ar)"/>
-      <text x="450" y="388" text-anchor="middle">Géoplateforme (WFS, géocodage, altimétrie) · Géorisques · RNB · ADEME · autres</text>
-    </svg>
+  <h2>Un contexte commun, deux modes d'usage</h2>
+  <p class="intro">Le serveur maintient, pour chaque connexion, un contexte de navigation : le territoire, le thème, les données et les couches chargées. Chaque mode a un acteur (le modèle, qui appelle les outils) et une surface (ce qui affiche). Tous lisent et modifient ce même contexte.</p>
+  <svg class="diag" viewBox="0 0 900 450" role="img" aria-labelledby="d1t d1d">
+  <title id="d1t">Deux modes d'usage, un contexte commun</title>
+  <desc id="d1d">Dans le mode client MCP, un client piloté par un modèle (acteur) et une MCP App (surface) agissent sur le serveur. Dans le mode site web, l'agent intégré (acteur) et l'interface web (surface) font de même. Le serveur geocontext porte un contexte commun, le registre de sources et le territoire exact, avec d'un côté les outils MCP standard et de l'autre les ajouts pour le site web.</desc>
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
 
-  <div class="grid2" style="margin-top:26px"><div class="card"><h3>Client MCP</h3><p>Claude Desktop, Cursor ou l'Inspector se connectent en stdio ou en HTTP et reçoivent sept outils dont les valeurs autorisées dépendent du contexte.</p></div><div class="card"><h3>Interface web</h3><p>Carte, tableaux, filtres, représentations et export. Elle parle au serveur comme un client MCP et fonctionne sans modèle de langage.</p></div><div class="card"><h3>MCP App</h3><p>Une carte embarquable (ui://geocontext-map) déclarée par les outils, que les clients compatibles peuvent afficher dans la conversation. Elle n'a pas été testée dans un client réel.</p></div><div class="card"><h3>Agent intégré</h3><p>Une boucle côté serveur, avec un modèle au choix de l'exploitant (API de type « chat completions »). Mêmes outils, même session que la page.</p></div></div>
+  <text x="230" y="22" text-anchor="middle" style="font-weight:600">Mode client MCP</text>
+  <text class="t2" x="230" y="40" text-anchor="middle">l'utilisateur apporte son client et son modèle</text>
+  <text x="670" y="22" text-anchor="middle" style="font-weight:600">Mode site web</text>
+  <text class="t2" x="670" y="40" text-anchor="middle">l'exploitant fournit l'interface et le modèle</text>
+
+  <rect class="col" x="20" y="52" width="420" height="124" rx="10"/>
+  <rect class="col" x="460" y="52" width="420" height="124" rx="10"/>
+
+  <rect class="box" x="36" y="68" width="190" height="92" rx="8"/>
+  <text class="t2" x="131" y="87" text-anchor="middle">ACTEUR · le modèle appelle les outils</text>
+  <text x="131" y="113" text-anchor="middle" style="font-weight:600">Client MCP</text>
+  <text class="t2" x="131" y="132" text-anchor="middle">Claude Desktop, Cursor…</text>
+
+  <rect class="box" x="234" y="68" width="190" height="92" rx="8"/>
+  <text class="t2" x="329" y="87" text-anchor="middle">SURFACE · affiche</text>
+  <text x="329" y="113" text-anchor="middle" style="font-weight:600">MCP App</text>
+  <text class="t2" x="329" y="132" text-anchor="middle">carte dans le client</text>
+  <text class="t2" x="329" y="148" text-anchor="middle">sans accusé d'affichage</text>
+
+  <rect class="box" x="476" y="68" width="190" height="92" rx="8"/>
+  <text class="t2" x="571" y="87" text-anchor="middle">ACTEUR · le modèle appelle les outils</text>
+  <text x="571" y="113" text-anchor="middle" style="font-weight:600">Agent intégré</text>
+  <text class="t2" x="571" y="132" text-anchor="middle">boucle côté serveur</text>
+
+  <rect class="box" x="674" y="68" width="190" height="92" rx="8"/>
+  <text class="t2" x="769" y="87" text-anchor="middle">SURFACE · affiche, relit, accuse</text>
+  <text x="769" y="113" text-anchor="middle" style="font-weight:600">Interface web</text>
+  <text class="t2" x="769" y="132" text-anchor="middle">carte, tableaux, filtres</text>
+  <text class="t2" x="769" y="148" text-anchor="middle">saisie directe sans modèle</text>
+
+  <path class="arrow" d="M230 176 L230 212" marker-end="url(#ar)"/>
+  <path class="arrow" d="M670 176 L670 212" marker-end="url(#ar)"/>
+
+  <rect class="core" x="20" y="214" width="860" height="170" rx="10"/>
+  <text x="450" y="240" text-anchor="middle" style="font-weight:600">Serveur geocontext · une session par connexion</text>
+  <text class="t2" x="450" y="260" text-anchor="middle">contexte commun : niveau, code, emprise, géométrie exacte, thème, données, couches, historique</text>
+  <text class="t2" x="450" y="278" text-anchor="middle">registre de sources (49) · exécuteurs WFS / REST · mode « territoire exact »</text>
+
+  <rect class="box" x="40" y="298" width="400" height="70" rx="8"/>
+  <text x="240" y="322" text-anchor="middle" style="font-weight:600">Pour tout client MCP</text>
+  <text class="t2" x="240" y="344" text-anchor="middle">sept outils · ressources · prompt de guidage</text>
+
+  <rect class="box" x="460" y="298" width="400" height="70" rx="8"/>
+  <text x="660" y="322" text-anchor="middle" style="font-weight:600">Ajouts pour le site web</text>
+  <text class="t2" x="660" y="344" text-anchor="middle">interface · /agent · /tiles · /liens · accusé d'affichage (ui_*)</text>
+
+  <path class="arrow" d="M450 384 L450 408" marker-end="url(#ar)"/>
+  <text x="450" y="432" text-anchor="middle">Géoplateforme (WFS, géocodage, altimétrie) · Géorisques · RNB · ADEME · autres</text>
+</svg>
+
+  <div class="grid2" style="margin-top:26px"><div class="card"><h3>Client MCP (acteur, mode client MCP)</h3><p>Claude Desktop, Cursor ou l'Inspector se connectent en stdio ou en HTTP et reçoivent sept outils dont les valeurs autorisées dépendent du contexte. Le modèle est celui du client.</p></div><div class="card"><h3>MCP App (surface, mode client MCP)</h3><p>Une carte embarquable (ui://geocontext-map) déclarée par les outils, que les clients compatibles peuvent afficher dans la conversation. Elle ne passe pas par le protocole d'accusé d'affichage et n'a pas été testée dans un client réel.</p></div><div class="card"><h3>Agent intégré (acteur, mode site web)</h3><p>Une boucle côté serveur, avec un modèle au choix de l'exploitant (API de type « chat completions »). Mêmes outils, même session que la page.</p></div><div class="card"><h3>Interface web (surface, mode site web)</h3><p>Carte, tableaux, filtres, représentations et export. Elle parle au serveur comme un client MCP, relit ce qu'elle affiche et l'accuse. Son chat accepte aussi des commandes directes, sans modèle.</p></div></div>
+</div></section>
+
+<section id="exploitation"><div class="wrap">
+  <h2>Deux modes, deux conditions d'exploitation</h2>
+  <p class="intro">Ce qui sépare les deux modes n'est pas le transport mais qui fournit l'interface et le modèle. Un client MCP peut aussi passer par HTTP : l'exposition réseau vaut alors pour lui aussi.</p>
+  <div class="scroll"><table>
+    <thead><tr><th></th><th>Mode client MCP</th><th>Mode site web</th></tr></thead>
+    <tbody><tr><td><strong>Qui l'utilise</strong></td><td>Une personne avec son propre client (Claude Desktop, Cursor).</td><td>Des utilisateurs qui ouvrent une page.</td></tr><tr><td><strong>Modèle de langage</strong></td><td>Celui du client ; le serveur n'en fournit aucun.</td><td>Celui de l'exploitant, configuré par variables AGENT_* pour l'agent intégré.</td></tr><tr><td><strong>Qui supporte le coût du modèle</strong></td><td>L'utilisateur.</td><td>L'exploitant, avec des bornes de jetons par heure.</td></tr><tr><td><strong>Serveur</strong></td><td>stdio sur le poste (une session), ou HTTP.</td><td>HTTP, exposé aux navigateurs.</td></tr><tr><td><strong>Authentification et réseau</strong></td><td>Celles du client ; rien à exposer en stdio. En HTTP, mêmes réserves que le site web.</td><td>Aucune authentification aujourd'hui ; CORS ouvert sur /mcp. À protéger avant toute exposition.</td></tr><tr><td><strong>Ce que le serveur ajoute</strong></td><td>Outils, ressources, prompt.</td><td>Interface, /agent, /tiles, /liens, accusé d'affichage.</td></tr></tbody>
+  </table></div>
 </div></section>
 
 <section id="technique"><div class="wrap">
@@ -187,7 +227,7 @@ AGENT_LLM_BASE_URL=… AGENT_LLM_MODEL=… AGENT_LLM_API_KEY=…</code></pre>
   <h2>À savoir avant d'adopter</h2>
   <p class="intro">C'est un prototype. Voici ce qui est vérifié, ce qui ne l'est pas, et ce qu'il faudrait avant un usage plus large.</p>
   <p class="note"><strong>Prototype.</strong> Utilisable sur une instance de test. Pas d'authentification, pas de reprise de service : voir « À savoir avant d'adopter ».</p>
-  <div class="grid2" style="margin-top:18px"><div class="card"><h3>Vérifié</h3><ul class="plain"><li>Appartenance exacte aux niveaux commune, EPCI et département, comparée à un calcul indépendant.</li><li>Parcelle : zonages et bâtiments comparés à un calcul indépendant sur quatre parcelles d'une commune.</li><li>Filtres, représentations et zone visible, joués dans un navigateur, avec relecture de la carte.</li><li>Tests hors réseau (registre, exécuteurs, pivot géométrique) : 58 sur 58. Les tests d'intégration appellent la Géoplateforme réelle et dépendent de sa disponibilité ; l'un d'eux (SIREN d'un EPCI du Doubs) échoue à cause de l'amont.</li></ul></div><div class="card"><h3>Non vérifié ou non disponible</h3><ul class="plain"><li>Région : comparaison indépendante non terminée.</li><li>Niveau bâtiment : non navigable (refus explicite).</li><li>DVF : comptage seul ; SIRENE : injoignable depuis l'environnement de test ; certaines sources parcelle : erreur explicite.</li><li>Somme des cellules hexagonales : non relisible via la carte.</li><li>MCP App : non testée dans un client réel.</li></ul></div><div class="card"><h3>Avant un usage plus large</h3><ul class="plain"><li>Authentification et gestion des droits (aujourd'hui : aucune).</li><li>Suivi des coûts de l'agent ; version du composant carte à figer.</li><li>Pas de reprise de service : dépendance aux services amont.</li></ul></div><div class="card"><h3>À ne pas en attendre</h3><ul class="plain"><li>Aucune valeur juridique : consulter la source officielle pour tout acte (zonage, servitude, transaction).</li><li>Pas de recherche sémantique (recherche par mots-clés uniquement).</li></ul></div></div>
+  <div class="grid2" style="margin-top:18px"><div class="card"><h3>Vérifié</h3><ul class="plain"><li>Appartenance exacte aux niveaux commune, EPCI et département, comparée à un calcul indépendant.</li><li>Parcelle : zonages et bâtiments comparés à un calcul indépendant sur quatre parcelles d'une commune.</li><li>Filtres, représentations et zone visible, joués dans un navigateur, avec relecture de la carte.</li><li>Tests hors réseau (registre, exécuteurs, pivot géométrique) : 58 sur 58. Les tests d'intégration appellent la Géoplateforme réelle et dépendent de sa disponibilité ; l'un d'eux (SIREN d'un EPCI du Doubs) échoue à cause de l'amont.</li></ul></div><div class="card"><h3>Non vérifié ou non disponible</h3><ul class="plain"><li>Région : comparaison indépendante non terminée.</li><li>Niveau bâtiment : non navigable (refus explicite).</li><li>DVF : comptage seul ; SIRENE : injoignable depuis l'environnement de test ; certaines sources parcelle : erreur explicite.</li><li>Somme des cellules hexagonales : non relisible via la carte.</li><li>MCP App : non testée dans un client réel, et sans accusé d'affichage (elle n'appelle pas ui_poll / ui_ack).</li></ul></div><div class="card"><h3>Avant un usage plus large</h3><ul class="plain"><li>Authentification et gestion des droits (aujourd'hui : aucune).</li><li>Suivi des coûts de l'agent ; version du composant carte à figer.</li><li>Pas de reprise de service : dépendance aux services amont.</li></ul></div><div class="card"><h3>À ne pas en attendre</h3><ul class="plain"><li>Aucune valeur juridique : consulter la source officielle pour tout acte (zonage, servitude, transaction).</li><li>Pas de recherche sémantique (recherche par mots-clés uniquement).</li></ul></div></div>
 </div></section>
 
 <section id="journal"><div class="wrap">

@@ -36,6 +36,17 @@ Le point de départ est le projet [mborne/geocontext](https://github.com/mborne/
 
 Transports : `stdio` (une session, un client) ou `http` (une session par connexion, plus l'interface web et les routes annexes).
 
+### Deux modes d'usage, un contexte commun
+
+Les quatre accès se rangent selon deux axes. **Acteur** : ce qui est piloté par un modèle qui appelle les outils (client MCP, agent intégré). **Surface** : ce qui affiche (MCP App, interface web). Chaque acteur a sa surface, et tous agissent sur le même contexte.
+
+| | Acteur | Surface |
+|---|---|---|
+| **Mode client MCP** (l'utilisateur apporte son client et son modèle) | Client MCP | MCP App |
+| **Mode site web** (l'exploitant fournit l'interface et le modèle) | Agent intégré | Interface web |
+
+Ce qui sépare les deux modes n'est pas le transport mais *qui fournit l'interface et le modèle* ; d'où des conditions d'exploitation différentes (coût du modèle, authentification, exposition réseau), détaillées dans la [vitrine](vitrine/index.html#exploitation). Le protocole d'accusé d'affichage (§8) n'est utilisé aujourd'hui que par l'interface web, pas par la MCP App.
+
 ## 3. Le contexte de navigation
 
 La session conserve un `NavigationContext` : niveau (région, département, EPCI, commune, parcelle, bâtiment), code, nom, emprise, géométrie exacte quand elle est connue (parcelle), hiérarchie, thème courant, données chargées, couches, historique.
@@ -90,7 +101,7 @@ Ces trois outils ne sont pas annoncés aux modèles. L'effet : ce qu'un assistan
 
 Dans l'interface web, chaque couche a un tableau et une carte. Après chaque chargement, filtre ou coloration, la page compare le nombre d'objets de la carte (relu via Atlas) à celui du tableau. S'ils diffèrent, l'opération est **annulée avec un message**. Si la carte ne peut pas être relue, la page le dit au lieu d'afficher un nombre. C'est visible à l'écran : « carte vérifiée 4 / 4 ».
 
-## 10. L'agent intégré
+## 10. L'agent intégré (acteur du mode site web)
 
 `src/agent/agent.ts` : une boucle d'agent côté serveur, branchée sur les **mêmes outils** et la **même session** que la page. Elle parle à une API de type « chat completions » compatible OpenAI (modèle au choix de l'exploitant).
 
@@ -101,7 +112,7 @@ Dans l'interface web, chaque couche a un tableau et une carte. Après chaque cha
 
 Bornes et variables : [api-http-agent.md](api-http-agent.md). Sans modèle configuré, tout fonctionne sauf le chat.
 
-## 11. Interface web et MCP App
+## 11. Interface web et MCP App (les deux surfaces)
 
 - **Interface web** (`public/`) : application sans étape de compilation, qui parle au serveur par `/mcp` comme n'importe quel client MCP. La carte par défaut est le composant externe `<atlas-bi>` (contrat « carte BI 0.3 »), qui fournit couches, filtres, formes de représentation (symboles, cercles proportionnels, chaleur, hexagones, grille), temps, fond de plan et relief. Une carte MapLibre simple reste disponible (`?carte=maplibre`).
 - **MCP App** (`ui://geocontext-map`) : un bundle HTML déclaré par les outils `navigate`, `action`, `map`, `compare` et `select`. Les clients qui prennent en charge les MCP Apps peuvent l'afficher dans la conversation. Elle a sa propre carte MapLibre ; elle n'offre pas les mêmes fonctions que l'interface web. Elle n'a pas été testée dans un client MCP Apps réel dans le cadre de cette documentation.
